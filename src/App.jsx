@@ -6,6 +6,26 @@ const money = (v) => Number(v || 0).toFixed(2)
 const createId = () =>
   (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+
+const apiFetch = async (path, options) => {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    let msg = 'Erreur serveur'
+    try {
+      const data = await res.json()
+      if (data?.error) msg = data.error
+    } catch {
+      // ignore
+    }
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
 const dbKeys = {
   clients: 'db.clients',
   articles: 'db.articles',
@@ -34,11 +54,6 @@ const writeStore = (key, value) => {
 const nowIso = () => new Date().toISOString()
 
 const ensureDb = () => {
-  if (!localStorage.getItem(dbKeys.clients)) writeStore(dbKeys.clients, [])
-  if (!localStorage.getItem(dbKeys.articles)) writeStore(dbKeys.articles, [])
-  if (!localStorage.getItem(dbKeys.warehouses))
-    writeStore(dbKeys.warehouses, [{ id: createId(), nom: 'Défaut' }])
-  if (!localStorage.getItem(dbKeys.infos)) writeStore(dbKeys.infos, [])
   if (!localStorage.getItem(dbKeys.logs)) writeStore(dbKeys.logs, [])
   if (!localStorage.getItem(dbKeys.notifications)) writeStore(dbKeys.notifications, [])
   if (!localStorage.getItem(dbKeys.invoices)) writeStore(dbKeys.invoices, [])
@@ -58,10 +73,8 @@ const addLog = (action, message, level = 'info') => {
   writeStore(dbKeys.logs, logs)
 }
 
-const updateNotifications = () => {
-  const settings = readStore(dbKeys.settings, {})
+const updateNotifications = (articles = [], settings = readStore(dbKeys.settings, {})) => {
   const threshold = parseFloat(settings.low_stock_threshold || '0')
-  const articles = readStore(dbKeys.articles, [])
   const existing = readStore(dbKeys.notifications, [])
   const existingByKey = new Map(
     existing.map((n) => [n.key || n.ref || n.nom, n])
@@ -92,23 +105,9 @@ const updateNotifications = () => {
   writeStore(dbKeys.notifications, notifications)
 }
 
-const nextInfoId = () => {
-  const infos = readStore(dbKeys.infos, [])
-  const maxId = infos.reduce((max, i) => Math.max(max, Number(i.id) || 0), 0)
-  return maxId + 1
-}
-
-const nextClientId = () => {
-  const clients = readStore(dbKeys.clients, [])
-  const maxId = clients.reduce((max, c) => Math.max(max, Number(c.id) || 0), 0)
-  return maxId + 1
-}
-
-const nextArticleId = () => {
-  const articles = readStore(dbKeys.articles, [])
-  const maxId = articles.reduce((max, a) => Math.max(max, Number(a.id) || 0), 0)
-  return maxId + 1
-}
+const nextInfoId = () => createId()
+const nextClientId = () => createId()
+const nextArticleId = () => createId()
 const buildPreviewHtml = ({ invoice, items, client, company, totals, logo, logoPos }) => {
   const rows = items
     .map(
@@ -327,10 +326,12 @@ function App() {
 
   const [clients, setClients] = useState([])
   const [articles, setArticles] = useState([])
+  const [allArticles, setAllArticles] = useState([])
   const [warehouses, setWarehouses] = useState([])
   const [infos, setInfos] = useState([])
   const [notifications, setNotifications] = useState([])
   const [logs, setLogs] = useState([])
+  const [toasts, setToasts] = useState([])
   const [showLogsPanel, setShowLogsPanel] = useState(false)
   const [confirmState, setConfirmState] = useState({
     open: false,
@@ -342,6 +343,21 @@ function App() {
     open: false,
     value: '',
   })
+  const [adminModal, setAdminModal] = useState({
+    open: false,
+    value: '',
+    mode: 'login',
+  })
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
+  const [adminEnv, setAdminEnv] = useState({
+    DB_HOST: '',
+    DB_PORT: '',
+    DB_NAME: '',
+    DB_USER: '',
+    DB_PASSWORD: '',
+  })
+  const [dbHealth, setDbHealth] = useState({ status: 'unknown', db: false, error: '' })
+  const [adminPassInput, setAdminPassInput] = useState('')
 
   const [selectedClientId, setSelectedClientId] = useState(null)
   const [selectedArticleId, setSelectedArticleId] = useState(null)
@@ -420,6 +436,18 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [articleSearch])
 
+  const pushToast = (type, message) => {
+    const id = createId()
+    setToasts((prev) => [{ id, type, message }, ...prev].slice(0, 6))
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 4500)
+  }
+
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }
+
   async function init() {
     ensureDb()
     const today = new Date().toISOString().slice(0, 10)
@@ -435,6 +463,44 @@ function App() {
     ])
     await autoNumber(today)
     schedulePreview()
+  }
+
+  const getAdminPassword = () => readStore(dbKeys.settings, {})?.admin_password || ''
+
+  async function refreshDbHealth() {
+    try {
+      const data = await apiFetch('/health')
+      setDbHealth({ status: data.status, db: !!data.db, error: '' })
+    } catch (err) {
+      setDbHealth({ status: 'error', db: false, error: err.message })
+    }
+  }
+
+  async function loadAdminEnv() {
+    try {
+      const data = await apiFetch('/admin/env')
+      setAdminEnv({
+        DB_HOST: data.DB_HOST || '',
+        DB_PORT: data.DB_PORT || '',
+        DB_NAME: data.DB_NAME || '',
+        DB_USER: data.DB_USER || '',
+        DB_PASSWORD: data.DB_PASSWORD || '',
+      })
+    } catch (err) {
+      pushToast('error', `Admin: ${err.message}`)
+    }
+  }
+
+  async function saveAdminEnv() {
+    try {
+      await apiFetch('/admin/env', {
+        method: 'PUT',
+        body: JSON.stringify(adminEnv),
+      })
+      pushToast('success', 'Env sauvegardé. Redémarre le serveur.')
+    } catch (err) {
+      pushToast('error', `Env: ${err.message}`)
+    }
   }
 
   function schedulePreview() {
@@ -506,8 +572,13 @@ function App() {
   }, [clients, clientSearch])
 
   async function loadClients() {
-    const data = readStore(dbKeys.clients, [])
-    setClients(data)
+    try {
+      const data = await apiFetch('/clients')
+      setClients(data)
+    } catch (err) {
+      pushToast('error', `Clients DB: ${err.message}`)
+      setClients([])
+    }
   }
 
   async function loadClientHistory(clientId) {
@@ -541,18 +612,35 @@ function App() {
     }
     if (isUpdate) {
       if (!selectedClientId) return alert('Sélectionne un client.')
-      const data = readStore(dbKeys.clients, [])
-      const idx = data.findIndex((c) => c.id === selectedClientId)
-      if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-      writeStore(dbKeys.clients, data)
-      addLog('client_update', `Client mis à jour: ${payload.nom}`)
+      try {
+        await apiFetch(`/clients/${selectedClientId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setClients((prev) =>
+          prev.map((c) => (c.id === selectedClientId ? { ...c, ...payload } : c))
+        )
+        addLog('client_update', `Client mis à jour: ${payload.nom}`)
+      } catch (err) {
+        pushToast('error', `Client non enregistré: ${err.message}`)
+        addLog('client_error', `Client update échoué: ${err.message}`, 'error')
+        return
+      }
     } else {
-      const data = readStore(dbKeys.clients, [])
       const entry = { id: nextClientId(), ...payload, created_at: nowIso() }
-      data.unshift(entry)
-      writeStore(dbKeys.clients, data)
-      addLog('client_create', `Client créé: ${payload.nom}`)
-      setSelectedClientId(entry.id)
+      try {
+        await apiFetch('/clients', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+        setClients((prev) => [entry, ...prev])
+        addLog('client_create', `Client créé: ${payload.nom}`)
+        setSelectedClientId(entry.id)
+      } catch (err) {
+        pushToast('error', `Client non enregistré: ${err.message}`)
+        addLog('client_error', `Client création échouée: ${err.message}`, 'error')
+        return
+      }
     }
     await loadClients()
   }
@@ -561,25 +649,38 @@ function App() {
     if (!selectedClientId) return alert('Sélectionne un client.')
     const ok = await confirmDialog('Supprimer client', 'Êtes-vous sûr de supprimer ce client ?')
     if (!ok) return
-    const data = readStore(dbKeys.clients, [])
-    const next = data.filter((c) => c.id !== selectedClientId)
-    writeStore(dbKeys.clients, next)
-    addLog('client_delete', `Client supprimé: ${selectedClientId}`)
+    try {
+      await apiFetch(`/clients/${selectedClientId}`, { method: 'DELETE' })
+      setClients((prev) => prev.filter((c) => c.id !== selectedClientId))
+      addLog('client_delete', `Client supprimé: ${selectedClientId}`)
+    } catch (err) {
+      pushToast('error', `Client non supprimé: ${err.message}`)
+      addLog('client_error', `Client suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedClientId(null)
     setClientForm(emptyClient)
     await loadClients()
   }
 
   async function loadArticles(q) {
-    const data = readStore(dbKeys.articles, [])
-    const term = q?.toLowerCase().trim()
-    const filtered = term
-      ? data.filter(
-          (a) =>
-            a.ref?.toLowerCase().includes(term) || a.nom?.toLowerCase().includes(term)
-        )
-      : data
-    setArticles(filtered)
+    try {
+      const data = await apiFetch('/articles')
+      setAllArticles(data)
+      const term = q?.toLowerCase().trim()
+      const filtered = term
+        ? data.filter(
+            (a) =>
+              a.ref?.toLowerCase().includes(term) || a.nom?.toLowerCase().includes(term)
+          )
+        : data
+      setArticles(filtered)
+      updateNotifications(data, settings)
+    } catch (err) {
+      pushToast('error', `Articles DB: ${err.message}`)
+      setArticles([])
+      setAllArticles([])
+    }
   }
 
   function selectArticle(a) {
@@ -601,9 +702,7 @@ function App() {
       setArticleForm((prev) => ({ ...prev, nom: name }))
       return
     }
-    const match = readStore(dbKeys.articles, []).find(
-      (a) => a.nom?.trim().toLowerCase() === term
-    )
+    const match = allArticles.find((a) => a.nom?.trim().toLowerCase() === term)
     if (!match) {
       setArticleForm((prev) => ({ ...prev, nom: name }))
       return
@@ -632,20 +731,44 @@ function App() {
     }
     if (isUpdate) {
       if (!selectedArticleId) return alert('Sélectionne un article.')
-      const data = readStore(dbKeys.articles, [])
-      const idx = data.findIndex((a) => a.id === selectedArticleId)
-      if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-      writeStore(dbKeys.articles, data)
-      addLog('article_update', `Article mis à jour: ${payload.ref || payload.nom}`)
+      try {
+        await apiFetch(`/articles/${selectedArticleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setAllArticles((prev) => {
+          const nextAll = prev.map((a) =>
+            a.id === selectedArticleId ? { ...a, ...payload } : a
+          )
+          updateNotifications(nextAll, settings)
+          return nextAll
+        })
+        addLog('article_update', `Article mis à jour: ${payload.ref || payload.nom}`)
+      } catch (err) {
+        pushToast('error', `Article non enregistré: ${err.message}`)
+        addLog('article_error', `Article update échoué: ${err.message}`, 'error')
+        return
+      }
     } else {
-      const data = readStore(dbKeys.articles, [])
       const entry = { id: nextArticleId(), ...payload, created_at: nowIso() }
-      data.unshift(entry)
-      writeStore(dbKeys.articles, data)
-      addLog('article_create', `Article créé: ${payload.ref || payload.nom}`)
-      setSelectedArticleId(entry.id)
+      try {
+        await apiFetch('/articles', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+        setAllArticles((prev) => {
+          const nextAll = [entry, ...prev]
+          updateNotifications(nextAll, settings)
+          return nextAll
+        })
+        addLog('article_create', `Article créé: ${payload.ref || payload.nom}`)
+        setSelectedArticleId(entry.id)
+      } catch (err) {
+        pushToast('error', `Article non enregistré: ${err.message}`)
+        addLog('article_error', `Article création échouée: ${err.message}`, 'error')
+        return
+      }
     }
-    updateNotifications()
     await loadArticles(articleSearch)
   }
 
@@ -653,21 +776,35 @@ function App() {
     if (!selectedArticleId) return alert('Sélectionne un article.')
     const ok = await confirmDialog('Supprimer article', 'Êtes-vous sûr de supprimer cet article ?')
     if (!ok) return
-    const data = readStore(dbKeys.articles, [])
-    const next = data.filter((a) => a.id !== selectedArticleId)
-    writeStore(dbKeys.articles, next)
-    addLog('article_delete', `Article supprimé: ${selectedArticleId}`)
+    try {
+      await apiFetch(`/articles/${selectedArticleId}`, { method: 'DELETE' })
+      setAllArticles((prev) => {
+        const nextAll = prev.filter((a) => a.id !== selectedArticleId)
+        updateNotifications(nextAll, settings)
+        return nextAll
+      })
+      addLog('article_delete', `Article supprimé: ${selectedArticleId}`)
+    } catch (err) {
+      pushToast('error', `Article non supprimé: ${err.message}`)
+      addLog('article_error', `Article suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedArticleId(null)
     setArticleForm(emptyArticle)
-    updateNotifications()
+    updateNotifications(allArticles, settings)
     await loadArticles(articleSearch)
   }
 
   async function loadWarehouses() {
-    const data = readStore(dbKeys.warehouses, [])
-    setWarehouses(data)
-    if (data.length && !invoice.warehouse) {
-      setInvoice((prev) => ({ ...prev, warehouse: data[0].nom }))
+    try {
+      const data = await apiFetch('/warehouses')
+      setWarehouses(data)
+      if (data.length && !invoice.warehouse) {
+        setInvoice((prev) => ({ ...prev, warehouse: data[0].nom }))
+      }
+    } catch (err) {
+      pushToast('error', `Entrepôts DB: ${err.message}`)
+      setWarehouses([])
     }
   }
 
@@ -682,21 +819,31 @@ function App() {
       'Êtes-vous sûr de supprimer cet entrepôt ?'
     )
     if (!ok) return
-    const data = readStore(dbKeys.warehouses, [])
-    const next = data.filter((w) => w.id !== selectedWarehouseId)
-    writeStore(dbKeys.warehouses, next)
-    addLog('warehouse_delete', `Entrepôt supprimé: ${selectedWarehouseId}`)
+    try {
+      await apiFetch(`/warehouses/${selectedWarehouseId}`, { method: 'DELETE' })
+      setWarehouses((prev) => prev.filter((w) => w.id !== selectedWarehouseId))
+      addLog('warehouse_delete', `Entrepôt supprimé: ${selectedWarehouseId}`)
+    } catch (err) {
+      pushToast('error', `Entrepôt non supprimé: ${err.message}`)
+      addLog('warehouse_error', `Entrepôt suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedWarehouseId(null)
     await loadWarehouses()
   }
   async function loadInfos() {
-    const data = readStore(dbKeys.infos, [])
-    setInfos(data)
+    try {
+      const data = await apiFetch('/infos')
+      setInfos(data)
+    } catch (err) {
+      pushToast('error', `Infos DB: ${err.message}`)
+      setInfos([])
+    }
   }
 
   async function selectInfo(id) {
     setSelectedInfoId(id)
-    const info = readStore(dbKeys.infos, []).find((i) => i.id === id) || {}
+    const info = infos.find((i) => i.id === id) || {}
     setInfoForm({
       nom: info.nom || '',
       adresse: info.adresse || '',
@@ -716,10 +863,9 @@ function App() {
   function applyInfoLookup() {
     const term = infoLookup.trim()
     if (!term) return
-    const infosData = readStore(dbKeys.infos, [])
     const found =
-      infosData.find((i) => String(i.id) === term) ||
-      infosData.find((i) => i.nom?.toLowerCase().includes(term.toLowerCase()))
+      infos.find((i) => String(i.id) === term) ||
+      infos.find((i) => i.nom?.toLowerCase().includes(term.toLowerCase()))
     if (!found) {
       alert('Info introuvable')
       return
@@ -746,10 +892,10 @@ function App() {
     if (!term) return
     const lower = term.toLowerCase()
     const match =
-      articles.find((a) => String(a.id) === term) ||
-      articles.find((a) => a.ref?.toLowerCase() === lower) ||
-      articles.find((a) => a.nom?.toLowerCase() === lower) ||
-      articles.find((a) => a.nom?.toLowerCase().includes(lower))
+      allArticles.find((a) => String(a.id) === term) ||
+      allArticles.find((a) => a.ref?.toLowerCase() === lower) ||
+      allArticles.find((a) => a.nom?.toLowerCase() === lower) ||
+      allArticles.find((a) => a.nom?.toLowerCase().includes(lower))
     if (!match) {
       alert('Article introuvable')
       return
@@ -780,27 +926,44 @@ function App() {
       signature_path: sigPath || '',
       stamp_path: stampPath || '',
     }
-    const data = readStore(dbKeys.infos, [])
-    const idx = data.findIndex((i) => i.id === payload.id)
-    if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-    else data.unshift({ ...payload, created_at: nowIso() })
-    writeStore(dbKeys.infos, data)
-    setSelectedInfoId(payload.id)
-    addLog('infos_save', `Infos enregistrées: ${payload.nom || payload.id}`)
-    await loadInfos()
+    try {
+      if (selectedInfoId) {
+        await apiFetch(`/infos/${selectedInfoId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setInfos((prev) => prev.map((i) => (i.id === payload.id ? { ...i, ...payload } : i)))
+      } else {
+        await apiFetch('/infos', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setInfos((prev) => [{ ...payload, created_at: nowIso() }, ...prev])
+      }
+      setSelectedInfoId(payload.id)
+      addLog('infos_save', `Infos enregistrées: ${payload.nom || payload.id}`)
+      await loadInfos()
+    } catch (err) {
+      pushToast('error', `Infos non enregistrées: ${err.message}`)
+      addLog('infos_error', `Infos save échoué: ${err.message}`, 'error')
+    }
   }
 
   async function deleteInfo() {
     if (!selectedInfoId) return alert('Sélectionne une info.')
     const ok = await confirmDialog('Supprimer info', 'Êtes-vous sûr de supprimer cette info ?')
     if (!ok) return
-    const data = readStore(dbKeys.infos, [])
-    const next = data.filter((i) => i.id !== selectedInfoId)
-    writeStore(dbKeys.infos, next)
-    addLog('infos_delete', `Infos supprimées: ${selectedInfoId}`)
-    setSelectedInfoId(null)
-    setInfoForm(emptyInfo)
-    await loadInfos()
+    try {
+      await apiFetch(`/infos/${selectedInfoId}`, { method: 'DELETE' })
+      setInfos((prev) => prev.filter((i) => i.id !== selectedInfoId))
+      addLog('infos_delete', `Infos supprimées: ${selectedInfoId}`)
+      setSelectedInfoId(null)
+      setInfoForm(emptyInfo)
+      await loadInfos()
+    } catch (err) {
+      pushToast('error', `Infos non supprimées: ${err.message}`)
+      addLog('infos_error', `Infos delete échoué: ${err.message}`, 'error')
+    }
   }
 
   async function uploadAsset(input) {
@@ -813,7 +976,7 @@ function App() {
   }
 
   async function loadNotifications() {
-    updateNotifications()
+    updateNotifications(allArticles, settings)
     const data = readStore(dbKeys.notifications, [])
     setNotifications(data)
   }
@@ -862,7 +1025,7 @@ function App() {
     const current = readStore(dbKeys.settings, {})
     writeStore(dbKeys.settings, { ...current, ...payload })
     addLog('settings_save', 'Paramètres enregistrés')
-    updateNotifications()
+    updateNotifications(allArticles, payload)
   }
 
   async function uploadLogo() {
@@ -917,22 +1080,37 @@ function App() {
       )
       if (!ok) return
 
-      const data = readStore(dbKeys.articles, [])
-      const updated = data.map((a) => {
+      const updated = allArticles.map((a) => {
         const line = invoiceEntry.items.find((it) => it.ref && it.ref === a.ref)
         if (!line) return a
         const nextStock =
           parseFloat(a.stock || '0') - parseFloat(line.stock || line.qty || '0')
         return { ...a, stock: String(nextStock < 0 ? 0 : nextStock) }
       })
-      writeStore(dbKeys.articles, updated)
+      setAllArticles(updated)
+      await Promise.all(
+        updated.map((a) =>
+          apiFetch(`/articles/${a.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              ref: a.ref,
+              nom: a.nom,
+              prix: a.prix,
+              prix_achat: a.prix_achat,
+              tva: a.tva,
+              stock: a.stock,
+              warehouse: a.warehouse,
+            }),
+          })
+        )
+      )
     }
 
     addLog(
       'invoice_export',
       `Facture exportée ${invoiceEntry.numero} (${client?.nom || ''})`
     )
-    updateNotifications()
+    updateNotifications(allArticles, settings)
 
     const html = buildPreviewHtml({
       invoice,
@@ -978,8 +1156,7 @@ function App() {
         if (it.id !== id) return it
         let next = { ...it, ...patch }
         if (patch.ref) {
-          const all = readStore(dbKeys.articles, [])
-          const found = all.find((a) => a.ref === patch.ref)
+          const found = allArticles.find((a) => a.ref === patch.ref)
           if (found) {
             next = {
               ...next,
@@ -1019,26 +1196,43 @@ function App() {
     const lines = text.split(/\r?\n/).filter(Boolean)
     if (!lines.length) return
     const rows = lines.map((l) => l.split(',').map((v) => v.trim()))
-    const data = readStore(dbKeys.articles, [])
-    rows.forEach((cols) => {
-      const [ref, nom, prix = '0', prix_achat = '0', tva = '0', stock = '0', warehouse = ''] =
-        cols
-      if (!ref && !nom) return
-      data.unshift({
-        id: createId(),
-        ref,
-        nom,
-        prix,
-        prix_achat,
-        tva,
-        stock,
-        warehouse,
-        created_at: nowIso(),
-      })
-    })
-    writeStore(dbKeys.articles, data)
-    addLog('article_import', 'Import CSV articles')
-    await loadArticles(articleSearch)
+    try {
+      const entries = rows
+        .map((cols) => {
+          const [
+            ref,
+            nom,
+            prix = '0',
+            prix_achat = '0',
+            tva = '0',
+            stock = '0',
+            warehouse = '',
+          ] = cols
+          if (!ref && !nom) return null
+          return {
+            id: createId(),
+            ref,
+            nom,
+            prix,
+            prix_achat,
+            tva,
+            stock,
+            warehouse,
+            created_at: nowIso(),
+          }
+        })
+        .filter(Boolean)
+      await Promise.all(
+        entries.map((entry) =>
+          apiFetch('/articles', { method: 'POST', body: JSON.stringify(entry) })
+        )
+      )
+      addLog('article_import', 'Import CSV articles')
+      await loadArticles(articleSearch)
+    } catch (err) {
+      pushToast('error', `Import CSV échoué: ${err.message}`)
+      addLog('article_error', `Import CSV échoué: ${err.message}`, 'error')
+    }
   }
 
   function confirmDialog(title, message) {
@@ -1065,9 +1259,8 @@ function App() {
   }
 
   function exportArticlesCsv() {
-    const data = readStore(dbKeys.articles, [])
     const header = 'ref,nom,prix,prix_achat,tva,stock,warehouse'
-    const rows = data.map(
+    const rows = allArticles.map(
       (a) =>
         `${a.ref || ''},${a.nom || ''},${a.prix || ''},${a.prix_achat || ''},${a.tva || ''},${a.stock || ''},${a.warehouse || ''}`
     )
@@ -1094,6 +1287,41 @@ function App() {
     downloadFile('logs.csv', [header, ...rows].join('\n'), 'text/csv')
   }
 
+  function openAdminTab() {
+    const saved = getAdminPassword()
+    if (!saved) {
+      setAdminModal({ open: true, value: '', mode: 'set' })
+      return
+    }
+    if (!adminUnlocked) {
+      setAdminModal({ open: true, value: '', mode: 'login' })
+      return
+    }
+    setPage('admin')
+  }
+
+  function acceptAdminModal() {
+    const value = adminModal.value.trim()
+    if (!value) return
+    const current = readStore(dbKeys.settings, {})
+    if (adminModal.mode === 'set') {
+      writeStore(dbKeys.settings, { ...current, admin_password: value })
+      setAdminUnlocked(true)
+      setAdminModal({ open: false, value: '', mode: 'login' })
+      setPage('admin')
+      pushToast('success', 'Mot de passe admin défini.')
+      return
+    }
+    const saved = current.admin_password || ''
+    if (value !== saved) {
+      pushToast('error', 'Mot de passe admin incorrect.')
+      return
+    }
+    setAdminUnlocked(true)
+    setAdminModal({ open: false, value: '', mode: 'login' })
+    setPage('admin')
+  }
+
   const [clientHistory, setClientHistory] = useState([])
   useEffect(() => {
     if (!selectedClientId) {
@@ -1103,6 +1331,13 @@ function App() {
     loadClientHistory(selectedClientId).then(setClientHistory)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClientId])
+
+  useEffect(() => {
+    if (page !== 'admin' || !adminUnlocked) return
+    refreshDbHealth()
+    loadAdminEnv()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, adminUnlocked])
 
   return (
     <div>
@@ -1158,12 +1393,19 @@ function App() {
                 onClick={async () => {
                   const nom = warehouseModal.value.trim()
                   if (!nom) return
-                  const data = readStore(dbKeys.warehouses, [])
-                  data.push({ id: createId(), nom })
-                  writeStore(dbKeys.warehouses, data)
-                  addLog('warehouse_create', `Entrepôt créé: ${nom}`)
-                  setWarehouseModal({ open: false, value: '' })
-                  await loadWarehouses()
+                  const entry = { id: createId(), nom }
+                  try {
+                    await apiFetch('/warehouses', {
+                      method: 'POST',
+                      body: JSON.stringify(entry),
+                    })
+                    addLog('warehouse_create', `Entrepôt créé: ${nom}`)
+                    setWarehouseModal({ open: false, value: '' })
+                    await loadWarehouses()
+                  } catch (err) {
+                    pushToast('error', `Entrepôt non enregistré: ${err.message}`)
+                    addLog('warehouse_error', `Entrepôt création échouée: ${err.message}`, 'error')
+                  }
                 }}
               >
                 Accepter
@@ -1172,14 +1414,52 @@ function App() {
           </div>
         </div>
       )}
+      {adminModal.open && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-title">
+              {adminModal.mode === 'set' ? 'Définir mot de passe admin' : 'Accès admin'}
+            </div>
+            <div className="modal-body">
+              <label>Mot de passe</label>
+              <input
+                type="password"
+                value={adminModal.value}
+                onChange={(e) =>
+                  setAdminModal((prev) => ({ ...prev, value: e.target.value }))
+                }
+                placeholder="Mot de passe"
+              />
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setAdminModal({ open: false, value: '', mode: 'login' })}>
+                Annuler
+              </button>
+              <button className="primary" onClick={acceptAdminModal}>
+                Accepter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="toast-stack">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.type || 'info'}`}>
+            <div className="toast-message">{t.message}</div>
+            <button className="toast-close" onClick={() => removeToast(t.id)}>
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
       <header className="topbar">
         <div className="brand">Gestion de Factures</div>
         <nav className="tabs">
-          {['facture', 'clients', 'articles', 'infos', 'logs'].map((p) => (
+          {['facture', 'clients', 'articles', 'infos', 'logs', 'admin'].map((p) => (
             <button
               key={p}
               className={`tab ${page === p ? 'active' : ''}`}
-              onClick={() => setPage(p)}
+              onClick={() => (p === 'admin' ? openAdminTab() : setPage(p))}
             >
               {p === 'facture'
                 ? 'Factures'
@@ -1189,7 +1469,9 @@ function App() {
                 ? 'Articles'
                 : p === 'infos'
                 ? 'Infos'
-                : 'Notifications'}
+                : p === 'logs'
+                ? 'Notifications'
+                : 'Admin'}
               {p === 'logs' && notifications.filter((n) => !n.read).length > 0 && (
                 <span className="tab-badge">
                   {notifications.filter((n) => !n.read).length}
@@ -1821,6 +2103,83 @@ function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {page === 'admin' && adminUnlocked && (
+          <section className="page active">
+            <div className="grid-2">
+              <div className="card">
+                <h3>État base de données</h3>
+                <div className={`status ${dbHealth.db ? 'ok' : 'bad'}`}>
+                  {dbHealth.db ? 'Connectée' : 'Non connectée'}
+                </div>
+                {dbHealth.error && <div className="hint">{dbHealth.error}</div>}
+                <button onClick={refreshDbHealth}>Tester connexion</button>
+              </div>
+              <div className="card">
+                <h3>Configuration .env</h3>
+                <label>DB_HOST</label>
+                <input
+                  value={adminEnv.DB_HOST}
+                  onChange={(e) => setAdminEnv({ ...adminEnv, DB_HOST: e.target.value })}
+                />
+                <label>DB_PORT</label>
+                <input
+                  value={adminEnv.DB_PORT}
+                  onChange={(e) => setAdminEnv({ ...adminEnv, DB_PORT: e.target.value })}
+                />
+                <label>DB_NAME</label>
+                <input
+                  value={adminEnv.DB_NAME}
+                  onChange={(e) => setAdminEnv({ ...adminEnv, DB_NAME: e.target.value })}
+                />
+                <label>DB_USER</label>
+                <input
+                  value={adminEnv.DB_USER}
+                  onChange={(e) => setAdminEnv({ ...adminEnv, DB_USER: e.target.value })}
+                />
+                <label>DB_PASSWORD</label>
+                <input
+                  type="password"
+                  value={adminEnv.DB_PASSWORD}
+                  onChange={(e) =>
+                    setAdminEnv({ ...adminEnv, DB_PASSWORD: e.target.value })
+                  }
+                />
+                <div className="btn-row">
+                  <button className="primary" onClick={saveAdminEnv}>
+                    Enregistrer
+                  </button>
+                </div>
+                <div className="hint">Redémarre le serveur après modification.</div>
+              </div>
+            </div>
+            <div className="grid-1">
+              <div className="card">
+                <h3>Mot de passe admin</h3>
+                <label>Nouveau mot de passe</label>
+                <input
+                  type="password"
+                  value={adminPassInput}
+                  onChange={(e) => setAdminPassInput(e.target.value)}
+                />
+                <div className="btn-row">
+                  <button
+                    onClick={() => {
+                      const next = adminPassInput.trim()
+                      if (!next) return
+                      const current = readStore(dbKeys.settings, {})
+                      writeStore(dbKeys.settings, { ...current, admin_password: next })
+                      setAdminPassInput('')
+                      pushToast('success', 'Mot de passe admin mis à jour.')
+                    }}
+                  >
+                    Mettre à jour
+                  </button>
+                </div>
               </div>
             </div>
           </section>
