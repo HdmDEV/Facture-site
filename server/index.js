@@ -11,8 +11,8 @@ app.use(express.json());
 
 app.get('/api/health', async (req, res) => {
   try {
-    const result = await pool.query('SELECT 1 as ok');
-    res.json({ status: 'ok', db: result.rows[0]?.ok === 1 });
+    const [rows] = await pool.query('SELECT 1 as ok');
+    res.json({ status: 'ok', db: rows?.[0]?.ok === 1 });
   } catch (err) {
     res.status(500).json({ status: 'error', error: err.message });
   }

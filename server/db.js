@@ -1,4 +1,4 @@
-import pg from 'pg';
+import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -9,14 +9,15 @@ const {
   DB_NAME,
   DB_USER,
   DB_PASSWORD,
-  DB_SSL,
 } = process.env;
 
-export const pool = new pg.Pool({
+export const pool = mysql.createPool({
   host: DB_HOST,
-  port: DB_PORT ? Number(DB_PORT) : 5432,
+  port: DB_PORT ? Number(DB_PORT) : 3306,
   database: DB_NAME,
   user: DB_USER,
   password: DB_PASSWORD,
-  ssl: DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
