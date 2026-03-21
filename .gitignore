@@ -24,5 +24,4 @@ dist-ssr
 
 # Env files
 .env
-.env.*
 server/.env
