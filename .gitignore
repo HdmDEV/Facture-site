@@ -25,3 +25,6 @@ dist-ssr
 # Env files
 .env
 server/.env
+
+# Dependencies
+node_modules/

@@ -110,6 +110,30 @@ Vite démarre généralement sur `http://localhost:5173`.
 
 Le frontend appelle le backend via le proxy Vite configuré sur `/api`.
 
+## Version desktop Electron
+
+Le projet peut aussi se lancer comme une application desktop avec Electron.
+
+### Démarrage
+
+```bash
+npm run electron:dev
+```
+
+Cette commande :
+- démarre l’API Express
+- démarre Vite
+- ouvre la fenêtre desktop Electron
+
+### Point important
+
+En mode desktop, l’application garde :
+- le frontend React
+- le backend local Express
+- la base Supabase
+
+Donc tu ne perds ni l’auth, ni les rôles, ni les données.
+
 ## Scripts disponibles
 
 ```bash

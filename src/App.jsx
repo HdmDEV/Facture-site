@@ -7,7 +7,9 @@ const money = (v) => Number(v || 0).toFixed(2)
 const createId = () =>
   (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api'
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (window.location.protocol === 'file:' ? 'http://127.0.0.1:3001/api' : '/api')
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 const DEV_DISABLE_EMAIL_CONFIRMATION = import.meta.env.VITE_DEV_DISABLE_EMAIL_CONFIRMATION === 'true'
