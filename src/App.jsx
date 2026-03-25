@@ -1,10 +1,374 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import './App.css'
 
 const money = (v) => Number(v || 0).toFixed(2)
 
 const createId = () =>
   (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (window.location.protocol === 'file:' ? 'http://127.0.0.1:3001/api' : '/api')
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const DEV_DISABLE_EMAIL_CONFIRMATION = import.meta.env.VITE_DEV_DISABLE_EMAIL_CONFIRMATION === 'true'
+const AUTH_STORAGE_MODE_KEY = 'ui.auth.storage_mode'
+const DEFAULT_AUTH_STORAGE_MODE = 'persistent'
+let authStorageMode = localStorage.getItem(AUTH_STORAGE_MODE_KEY) || DEFAULT_AUTH_STORAGE_MODE
+const authStorage = {
+  getItem(key) {
+    return authStorageMode === 'session' ? sessionStorage.getItem(key) : localStorage.getItem(key)
+  },
+  setItem(key, value) {
+    if (authStorageMode === 'session') {
+      sessionStorage.setItem(key, value)
+      localStorage.removeItem(key)
+      return
+    }
+    localStorage.setItem(key, value)
+    sessionStorage.removeItem(key)
+  },
+  removeItem(key) {
+    localStorage.removeItem(key)
+    sessionStorage.removeItem(key)
+  },
+}
+const supabase =
+  SUPABASE_URL && SUPABASE_ANON_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, storage: authStorage },
+      })
+    : null
+const SUPERADMIN_EMAIL = import.meta.env.VITE_SUPERADMIN_EMAIL || ''
+const ROLE_PERMISSION_KEYS = [
+  'invoice_access',
+  'client_access',
+  'article_access',
+  'info_access',
+  'logs_access',
+  'admin_access',
+  'user_manage',
+  'role_manage',
+]
+const DEFAULT_ROLE_PERMISSIONS = {
+  visitor: {
+    invoice_access: true,
+    client_access: false,
+    article_access: false,
+    info_access: false,
+    logs_access: false,
+    admin_access: false,
+    user_manage: false,
+    role_manage: false,
+  },
+  user: {
+    invoice_access: true,
+    client_access: true,
+    article_access: true,
+    info_access: true,
+    logs_access: false,
+    admin_access: false,
+    user_manage: false,
+    role_manage: false,
+  },
+  admin: {
+    invoice_access: true,
+    client_access: true,
+    article_access: true,
+    info_access: true,
+    logs_access: true,
+    admin_access: true,
+    user_manage: true,
+    role_manage: true,
+  },
+  root: {
+    invoice_access: true,
+    client_access: true,
+    article_access: true,
+    info_access: true,
+    logs_access: true,
+    admin_access: true,
+    user_manage: true,
+    role_manage: true,
+  },
+}
+const DEFAULT_ROLE_LIST = [
+  { slug: 'visitor', label: 'Visiteur', permissions: DEFAULT_ROLE_PERMISSIONS.visitor },
+  { slug: 'user', label: 'Utilisateur', permissions: DEFAULT_ROLE_PERMISSIONS.user },
+  { slug: 'admin', label: 'Admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin },
+  { slug: 'root', label: 'Root', permissions: DEFAULT_ROLE_PERMISSIONS.root },
+]
+const DEFAULT_UI_PREFS = {
+  language: 'fr',
+  theme: 'dark',
+  keepSessionOnReload: true,
+  toastAnchor: 'top-right',
+  toastOffsetX: 16,
+  toastOffsetY: 16,
+}
+const UI_LANGUAGE_OPTIONS = [
+  { value: 'fr', label: 'Français' },
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Español' },
+  { value: 'it', label: 'Italiano' },
+]
+const UI_THEME_OPTIONS = [
+  { value: 'dark', label: 'Sombre' },
+  { value: 'light', label: 'Clair' },
+  { value: 'navy', label: 'Bleu nuit' },
+  { value: 'forest', label: 'Forêt' },
+]
+const UI_TRANSLATIONS = {
+  fr: {
+    brand: 'Gestion de Factures',
+    nav_invoice: 'Factures',
+    nav_clients: 'Clients',
+    nav_articles: 'Articles',
+    nav_infos: 'Infos',
+    nav_logs: 'Notifications',
+    nav_admin: 'Admin',
+    login: 'Connexion',
+    signup: 'Créer un compte',
+    logout: 'Déconnexion',
+    settings: 'Réglages',
+    settings_title: 'Réglages utilisateur',
+    settings_language: 'Langue',
+    settings_theme: 'Thème',
+    settings_session: 'Rester connecté après un rechargement',
+    settings_notifications: 'Position des notifications',
+    settings_preview: 'Aperçu notif',
+    settings_anchor: 'Ancrage',
+    settings_offset_x: 'Décalage X',
+    settings_offset_y: 'Décalage Y',
+    home_eyebrow: 'Plateforme de facturation & stocks',
+    home_title: 'Un espace clair pour suivre, facturer, encaisser.',
+    home_subtitle:
+      'Tout est regroupé au même endroit: clients, articles, stocks, factures, alertes et export. Un outil qui garde le rythme de votre activité.',
+    home_open_panel: 'Accéder au panel',
+    home_create_account: 'Créer un compte',
+    home_highlight_1_value: '2 min',
+    home_highlight_1_label: 'par facture',
+    home_highlight_2_value: '+48%',
+    home_highlight_2_label: 'visibilité stock',
+    home_highlight_3_value: '24/7',
+    home_highlight_3_label: 'accès sécurisé',
+  },
+  en: {
+    brand: 'Invoice Manager',
+    nav_invoice: 'Invoices',
+    nav_clients: 'Clients',
+    nav_articles: 'Items',
+    nav_infos: 'Company',
+    nav_logs: 'Notifications',
+    nav_admin: 'Admin',
+    login: 'Login',
+    signup: 'Create account',
+    logout: 'Logout',
+    settings: 'Settings',
+    settings_title: 'User settings',
+    settings_language: 'Language',
+    settings_theme: 'Theme',
+    settings_session: 'Stay signed in after refresh',
+    settings_notifications: 'Notification position',
+    settings_preview: 'Preview notifications',
+    settings_anchor: 'Anchor',
+    settings_offset_x: 'X offset',
+    settings_offset_y: 'Y offset',
+    home_eyebrow: 'Billing & stock platform',
+    home_title: 'A clear space to track, bill, and collect.',
+    home_subtitle:
+      'Everything is grouped in one place: customers, items, stock, invoices, alerts, and exports. A tool that keeps up with your workflow.',
+    home_open_panel: 'Open panel',
+    home_create_account: 'Create account',
+    home_highlight_1_value: '2 min',
+    home_highlight_1_label: 'per invoice',
+    home_highlight_2_value: '+48%',
+    home_highlight_2_label: 'stock visibility',
+    home_highlight_3_value: '24/7',
+    home_highlight_3_label: 'secure access',
+  },
+  es: {
+    brand: 'Gestor de facturas',
+    nav_invoice: 'Facturas',
+    nav_clients: 'Clientes',
+    nav_articles: 'Artículos',
+    nav_infos: 'Empresa',
+    nav_logs: 'Notificaciones',
+    nav_admin: 'Admin',
+    login: 'Iniciar sesión',
+    signup: 'Crear cuenta',
+    logout: 'Cerrar sesión',
+    settings: 'Ajustes',
+    settings_title: 'Ajustes del usuario',
+    settings_language: 'Idioma',
+    settings_theme: 'Tema',
+    settings_session: 'Mantener sesión al recargar',
+    settings_notifications: 'Posición de notificaciones',
+    settings_preview: 'Vista previa de notificaciones',
+    settings_anchor: 'Anclaje',
+    settings_offset_x: 'Desplazamiento X',
+    settings_offset_y: 'Desplazamiento Y',
+    home_eyebrow: 'Plataforma de facturación y stock',
+    home_title: 'Un espacio claro para seguir, facturar y cobrar.',
+    home_subtitle:
+      'Todo está reunido en un solo lugar: clientes, artículos, stock, facturas, alertas y exportación. Una herramienta que sigue tu ritmo.',
+    home_open_panel: 'Abrir panel',
+    home_create_account: 'Crear cuenta',
+    home_highlight_1_value: '2 min',
+    home_highlight_1_label: 'por factura',
+    home_highlight_2_value: '+48%',
+    home_highlight_2_label: 'visibilidad stock',
+    home_highlight_3_value: '24/7',
+    home_highlight_3_label: 'acceso seguro',
+  },
+  it: {
+    brand: 'Gestione Fatture',
+    nav_invoice: 'Fatture',
+    nav_clients: 'Clienti',
+    nav_articles: 'Articoli',
+    nav_infos: 'Azienda',
+    nav_logs: 'Notifiche',
+    nav_admin: 'Admin',
+    login: 'Accesso',
+    signup: 'Crea account',
+    logout: 'Disconnetti',
+    settings: 'Impostazioni',
+    settings_title: 'Impostazioni utente',
+    settings_language: 'Lingua',
+    settings_theme: 'Tema',
+    settings_session: 'Resta connesso dopo il refresh',
+    settings_notifications: 'Posizione notifiche',
+    settings_preview: 'Anteprima notifiche',
+    settings_anchor: 'Ancora',
+    settings_offset_x: 'Offset X',
+    settings_offset_y: 'Offset Y',
+    home_eyebrow: 'Piattaforma fatture e stock',
+    home_title: 'Uno spazio chiaro per seguire, fatturare e incassare.',
+    home_subtitle:
+      'Tutto è riunito in un solo posto: clienti, articoli, stock, fatture, avvisi ed esportazioni. Uno strumento che segue il tuo ritmo.',
+    home_open_panel: 'Apri pannello',
+    home_create_account: 'Crea account',
+    home_highlight_1_value: '2 min',
+    home_highlight_1_label: 'per fattura',
+    home_highlight_2_value: '+48%',
+    home_highlight_2_label: 'visibilità stock',
+    home_highlight_3_value: '24/7',
+    home_highlight_3_label: 'accesso sicuro',
+  },
+}
+const uiPrefsKey = (userId) => `ui.prefs.${userId || 'guest'}`
+const normalizeUiPrefs = (prefs = {}) => ({
+  language: ['fr', 'en', 'es', 'it'].includes(prefs.language) ? prefs.language : DEFAULT_UI_PREFS.language,
+  theme: ['dark', 'light', 'navy', 'forest'].includes(prefs.theme) ? prefs.theme : DEFAULT_UI_PREFS.theme,
+  keepSessionOnReload: prefs.keepSessionOnReload === undefined ? DEFAULT_UI_PREFS.keepSessionOnReload : !!prefs.keepSessionOnReload,
+  toastAnchor: ['top-right', 'top-left', 'bottom-right', 'bottom-left'].includes(prefs.toastAnchor)
+    ? prefs.toastAnchor
+    : DEFAULT_UI_PREFS.toastAnchor,
+  toastOffsetX: Number.isFinite(Number(prefs.toastOffsetX)) ? Number(prefs.toastOffsetX) : DEFAULT_UI_PREFS.toastOffsetX,
+  toastOffsetY: Number.isFinite(Number(prefs.toastOffsetY)) ? Number(prefs.toastOffsetY) : DEFAULT_UI_PREFS.toastOffsetY,
+})
+const migrateAuthStorageMode = (nextMode) => {
+  const mode = nextMode === 'session' ? 'session' : 'persistent'
+  if (mode === authStorageMode) return
+  const source = authStorageMode === 'session' ? sessionStorage : localStorage
+  const target = mode === 'session' ? sessionStorage : localStorage
+  Object.keys(source)
+    .filter((key) => key.startsWith('sb-'))
+    .forEach((key) => {
+      const value = source.getItem(key)
+      if (value !== null) target.setItem(key, value)
+      source.removeItem(key)
+    })
+  authStorageMode = mode
+  localStorage.setItem(AUTH_STORAGE_MODE_KEY, mode)
+}
+const setAuthStorageMode = (keepSessionOnReload) => {
+  migrateAuthStorageMode(keepSessionOnReload ? 'session' : 'persistent')
+}
+const ROLE_PERMISSION_DEFS = [
+  { key: 'invoice_access', label: 'Accès facturation', hint: 'Voir et créer les factures.' },
+  { key: 'client_access', label: 'Clients', hint: 'Accès aux clients.' },
+  { key: 'article_access', label: 'Articles', hint: 'Accès aux articles et stocks.' },
+  { key: 'info_access', label: 'Infos entreprise', hint: 'Accès aux infos entreprise.' },
+  { key: 'logs_access', label: 'Notifications / logs', hint: 'Voir les logs et notifications.' },
+  { key: 'admin_access', label: 'Accès admin', hint: 'Afficher le menu admin.' },
+  { key: 'user_manage', label: 'Gestion des utilisateurs', hint: 'Créer et modifier des comptes.' },
+  { key: 'role_manage', label: 'Gestion des rôles', hint: 'Créer et modifier des rôles.' },
+]
+const normalizePermissions = (permissions = {}) =>
+  ROLE_PERMISSION_KEYS.reduce((acc, key) => {
+    acc[key] = !!permissions[key]
+    return acc
+  }, {})
+const normalizeRole = (role) => {
+  const slug = String(role?.slug || '').trim().toLowerCase()
+  const label = String(role?.label || slug).trim()
+  const base = DEFAULT_ROLE_PERMISSIONS[slug] || DEFAULT_ROLE_PERMISSIONS.user
+  return { slug, label, permissions: normalizePermissions({ ...base, ...(role?.permissions || {}) }) }
+}
+const permissionsForRole = (role) =>
+  normalizePermissions(DEFAULT_ROLE_PERMISSIONS[String(role || 'user').toLowerCase()] || DEFAULT_ROLE_PERMISSIONS.user)
+const PAGE_PERMISSION_MAP = {
+  facture: 'invoice_access',
+  clients: 'client_access',
+  articles: 'article_access',
+  infos: 'info_access',
+  logs: 'logs_access',
+  admin: 'admin_access',
+}
+
+const normalizeFetchError = (err) => {
+  if (!err) return 'Erreur réseau'
+  if (err.name === 'TypeError' && /failed to fetch/i.test(err.message || '')) {
+    return 'Serveur API injoignable. Lance le backend.'
+  }
+  return err.message || 'Erreur réseau'
+}
+
+const apiFetch = async (path, options) => {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    })
+    if (!res.ok) {
+      let msg = 'Erreur serveur'
+      try {
+        const data = await res.json()
+        if (data?.error) msg = data.error
+      } catch {
+        // ignore
+      }
+      throw new Error(msg)
+    }
+    return res.json()
+  } catch (err) {
+    throw new Error(normalizeFetchError(err))
+  }
+}
+
+const apiFetchAuth = async (path, token, options) => {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      ...options,
+    })
+    if (!res.ok) {
+      let msg = 'Erreur serveur'
+      try {
+        const data = await res.json()
+        if (data?.error) msg = data.error
+      } catch {
+        // ignore
+      }
+      throw new Error(msg)
+    }
+    return res.json()
+  } catch (err) {
+    throw new Error(normalizeFetchError(err))
+  }
+}
 
 const dbKeys = {
   clients: 'db.clients',
@@ -34,11 +398,6 @@ const writeStore = (key, value) => {
 const nowIso = () => new Date().toISOString()
 
 const ensureDb = () => {
-  if (!localStorage.getItem(dbKeys.clients)) writeStore(dbKeys.clients, [])
-  if (!localStorage.getItem(dbKeys.articles)) writeStore(dbKeys.articles, [])
-  if (!localStorage.getItem(dbKeys.warehouses))
-    writeStore(dbKeys.warehouses, [{ id: createId(), nom: 'Défaut' }])
-  if (!localStorage.getItem(dbKeys.infos)) writeStore(dbKeys.infos, [])
   if (!localStorage.getItem(dbKeys.logs)) writeStore(dbKeys.logs, [])
   if (!localStorage.getItem(dbKeys.notifications)) writeStore(dbKeys.notifications, [])
   if (!localStorage.getItem(dbKeys.invoices)) writeStore(dbKeys.invoices, [])
@@ -47,7 +406,7 @@ const ensureDb = () => {
       low_stock_threshold: '5',
       invoice_template: 'classic',
       invoice_logo_pos: 'left',
-      default_warehouse: 'Défaut',
+      default_warehouse: 'Defaut',
       invoice_logo_path: '',
     })
 }
@@ -58,10 +417,8 @@ const addLog = (action, message, level = 'info') => {
   writeStore(dbKeys.logs, logs)
 }
 
-const updateNotifications = () => {
-  const settings = readStore(dbKeys.settings, {})
+const updateNotifications = (articles = [], settings = readStore(dbKeys.settings, {})) => {
   const threshold = parseFloat(settings.low_stock_threshold || '0')
-  const articles = readStore(dbKeys.articles, [])
   const existing = readStore(dbKeys.notifications, [])
   const existingByKey = new Map(
     existing.map((n) => [n.key || n.ref || n.nom, n])
@@ -92,23 +449,9 @@ const updateNotifications = () => {
   writeStore(dbKeys.notifications, notifications)
 }
 
-const nextInfoId = () => {
-  const infos = readStore(dbKeys.infos, [])
-  const maxId = infos.reduce((max, i) => Math.max(max, Number(i.id) || 0), 0)
-  return maxId + 1
-}
-
-const nextClientId = () => {
-  const clients = readStore(dbKeys.clients, [])
-  const maxId = clients.reduce((max, c) => Math.max(max, Number(c.id) || 0), 0)
-  return maxId + 1
-}
-
-const nextArticleId = () => {
-  const articles = readStore(dbKeys.articles, [])
-  const maxId = articles.reduce((max, a) => Math.max(max, Number(a.id) || 0), 0)
-  return maxId + 1
-}
+const nextInfoId = () => createId()
+const nextClientId = () => createId()
+const nextArticleId = () => createId()
 const buildPreviewHtml = ({ invoice, items, client, company, totals, logo, logoPos }) => {
   const rows = items
     .map(
@@ -323,14 +666,40 @@ function CustomSelect({ value, onChange, options, placeholder = 'Sélectionner',
 }
 
 function App() {
-  const [page, setPage] = useState('facture')
+  const [page, setPage] = useState('home')
+  const [authModal, setAuthModal] = useState({
+    open: false,
+    mode: 'login',
+    email: '',
+    password: '',
+    name: '',
+  })
+  const [authedUser, setAuthedUser] = useState(null)
+  const [authSession, setAuthSession] = useState(null)
+  const [userRole, setUserRole] = useState('user')
+  const [userPermissions, setUserPermissions] = useState(permissionsForRole('user'))
+  const [adminUsers, setAdminUsers] = useState([])
+  const [adminUserForm, setAdminUserForm] = useState({ email: '', password: '', name: '', role: 'user' })
+  const [adminRoles, setAdminRoles] = useState(DEFAULT_ROLE_LIST)
+  const [adminRolesLoading, setAdminRolesLoading] = useState(false)
+  const [adminRolesLoaded, setAdminRolesLoaded] = useState(false)
+  const [adminRolesError, setAdminRolesError] = useState('')
+  const [roleForm, setRoleForm] = useState({
+    slug: '',
+    label: '',
+    permissions: permissionsForRole('visitor'),
+  })
+  const [editingRoleSlug, setEditingRoleSlug] = useState('')
+  const [adminSection, setAdminSection] = useState('overview')
 
   const [clients, setClients] = useState([])
   const [articles, setArticles] = useState([])
+  const [allArticles, setAllArticles] = useState([])
   const [warehouses, setWarehouses] = useState([])
   const [infos, setInfos] = useState([])
   const [notifications, setNotifications] = useState([])
   const [logs, setLogs] = useState([])
+  const [toasts, setToasts] = useState([])
   const [showLogsPanel, setShowLogsPanel] = useState(false)
   const [confirmState, setConfirmState] = useState({
     open: false,
@@ -342,6 +711,43 @@ function App() {
     open: false,
     value: '',
   })
+  const [adminModal, setAdminModal] = useState({
+    open: false,
+    value: '',
+    mode: 'login',
+  })
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
+  const [adminEnv, setAdminEnv] = useState({
+    SUPABASE_URL: '',
+    SUPABASE_SERVICE_ROLE_KEY: '',
+  })
+  const [dbHealth, setDbHealth] = useState({ status: 'unknown', db: false, error: '' })
+  const [adminPassInput, setAdminPassInput] = useState('')
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false)
+  const [adminUsersLoaded, setAdminUsersLoaded] = useState(false)
+  const [adminUsersError, setAdminUsersError] = useState('')
+  const [uiPrefs, setUiPrefs] = useState(DEFAULT_UI_PREFS)
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false)
+  const [notifPreviewOpen, setNotifPreviewOpen] = useState(false)
+  const canAccess = useCallback((key) => !!userPermissions?.[key], [userPermissions])
+  const canAccessAdmin = useMemo(() => canAccess('admin_access') || ['admin', 'root'].includes(userRole), [canAccess, userRole])
+  const t = useCallback(
+    (key) => UI_TRANSLATIONS[uiPrefs.language]?.[key] || UI_TRANSLATIONS.fr[key] || key,
+    [uiPrefs.language],
+  )
+  const adminTabs = useMemo(() => {
+    const tabs = [{ key: 'overview', label: 'Aperçu', permission: null }]
+    if (canAccess('admin_access')) {
+      tabs.push({ key: 'settings', label: 'Réglages', permission: 'admin_access' })
+    }
+    if (canAccess('role_manage')) {
+      tabs.push({ key: 'roles', label: 'Rôles', permission: 'role_manage' })
+    }
+    if (canAccess('user_manage')) {
+      tabs.push({ key: 'users', label: 'Utilisateurs', permission: 'user_manage' })
+    }
+    return tabs
+  }, [canAccess])
 
   const [selectedClientId, setSelectedClientId] = useState(null)
   const [selectedArticleId, setSelectedArticleId] = useState(null)
@@ -392,6 +798,7 @@ function App() {
 
   const [previewHtml, setPreviewHtml] = useState('')
   const previewTimer = useRef(null)
+  const settingsMenuRef = useRef(null)
   const logoFileRef = useRef(null)
   const signatureFileRef = useRef(null)
   const stampFileRef = useRef(null)
@@ -403,6 +810,38 @@ function App() {
       if (previewTimer.current) clearTimeout(previewTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    loadUiPrefsForUser(authedUser?.id || 'guest')
+  }, [authedUser?.id])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = uiPrefs.theme
+    document.body.dataset.theme = uiPrefs.theme
+    document.documentElement.lang =
+      uiPrefs.language === 'fr'
+        ? 'fr'
+        : uiPrefs.language === 'en'
+        ? 'en'
+        : uiPrefs.language === 'es'
+        ? 'es'
+        : 'it'
+  }, [uiPrefs.theme, uiPrefs.language])
+
+  useEffect(() => {
+    saveUiPrefsForUser(authedUser?.id || 'guest', uiPrefs)
+  }, [uiPrefs, authedUser?.id])
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!settingsMenuRef.current) return
+      if (!settingsMenuRef.current.contains(event.target)) {
+        setSettingsMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   useEffect(() => {
@@ -420,8 +859,41 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [articleSearch])
 
+  useEffect(() => {
+    if (!supabase) return
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session || null)
+      setAuthedUser(session?.user || null)
+      if (session?.user) syncProfile(session.user, session.access_token)
+    })
+    return () => {
+      sub?.subscription?.unsubscribe?.()
+    }
+  }, [])
+
+
+  const pushToast = (type, message) => {
+    const id = createId()
+    setToasts((prev) => [{ id, type, message }, ...prev].slice(0, 6))
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 4500)
+  }
+
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }
+
   async function init() {
     ensureDb()
+    if (supabase) {
+      const { data } = await supabase.auth.getSession()
+      setAuthSession(data?.session || null)
+      setAuthedUser(data?.session?.user || null)
+      if (data?.session?.user) await syncProfile(data.session.user, data.session.access_token)
+    }
+    const savedUser = readStore(dbKeys.settings, {})?.auth_user || null
+    if (savedUser) setAuthedUser(savedUser)
     const today = new Date().toISOString().slice(0, 10)
     setInvoice((prev) => ({ ...prev, date_facture: today }))
     await Promise.all([
@@ -435,6 +907,61 @@ function App() {
     ])
     await autoNumber(today)
     schedulePreview()
+  }
+
+  function loadUiPrefsForUser(userId) {
+    const saved = readStore(uiPrefsKey(userId), DEFAULT_UI_PREFS)
+    const next = normalizeUiPrefs(saved)
+    setUiPrefs(next)
+    setAuthStorageMode(next.keepSessionOnReload)
+  }
+
+  function saveUiPrefsForUser(userId, nextPrefs) {
+    const next = normalizeUiPrefs(nextPrefs)
+    writeStore(uiPrefsKey(userId), next)
+    setUiPrefs(next)
+    setAuthStorageMode(next.keepSessionOnReload)
+  }
+
+  const getAdminPassword = () => readStore(dbKeys.settings, {})?.admin_password || ''
+
+  async function refreshDbHealth() {
+    try {
+      const data = await apiFetch('/health')
+      setDbHealth({ status: data.status, db: !!data.db, error: '' })
+    } catch (err) {
+      setDbHealth({ status: 'error', db: false, error: err.message })
+    }
+  }
+
+  async function loadAdminEnv() {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token || authSession?.access_token || ''
+      if (!token) throw new Error('Session manquante. Reconnecte-toi.')
+      const data = await apiFetchAuth('/admin/env', token)
+      setAdminEnv({
+        SUPABASE_URL: data.SUPABASE_URL || '',
+        SUPABASE_SERVICE_ROLE_KEY: data.SUPABASE_SERVICE_ROLE_KEY || '',
+      })
+    } catch (err) {
+      pushToast('error', `Admin: ${err.message}`)
+    }
+  }
+
+  async function saveAdminEnv() {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token || authSession?.access_token || ''
+      if (!token) throw new Error('Session manquante. Reconnecte-toi.')
+      await apiFetchAuth('/admin/env', token, {
+        method: 'PUT',
+        body: JSON.stringify(adminEnv),
+      })
+      pushToast('success', 'Env sauvegardé. Redémarre le serveur.')
+    } catch (err) {
+      pushToast('error', `Env: ${err.message}`)
+    }
   }
 
   function schedulePreview() {
@@ -506,8 +1033,13 @@ function App() {
   }, [clients, clientSearch])
 
   async function loadClients() {
-    const data = readStore(dbKeys.clients, [])
-    setClients(data)
+    try {
+      const data = await apiFetch('/clients')
+      setClients(data)
+    } catch (err) {
+      pushToast('error', `Clients DB: ${err.message}`)
+      setClients([])
+    }
   }
 
   async function loadClientHistory(clientId) {
@@ -541,18 +1073,35 @@ function App() {
     }
     if (isUpdate) {
       if (!selectedClientId) return alert('Sélectionne un client.')
-      const data = readStore(dbKeys.clients, [])
-      const idx = data.findIndex((c) => c.id === selectedClientId)
-      if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-      writeStore(dbKeys.clients, data)
-      addLog('client_update', `Client mis à jour: ${payload.nom}`)
+      try {
+        await apiFetch(`/clients/${selectedClientId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setClients((prev) =>
+          prev.map((c) => (c.id === selectedClientId ? { ...c, ...payload } : c))
+        )
+        addLog('client_update', `Client mis à jour: ${payload.nom}`)
+      } catch (err) {
+        pushToast('error', `Client non enregistré: ${err.message}`)
+        addLog('client_error', `Client update échoué: ${err.message}`, 'error')
+        return
+      }
     } else {
-      const data = readStore(dbKeys.clients, [])
       const entry = { id: nextClientId(), ...payload, created_at: nowIso() }
-      data.unshift(entry)
-      writeStore(dbKeys.clients, data)
-      addLog('client_create', `Client créé: ${payload.nom}`)
-      setSelectedClientId(entry.id)
+      try {
+        await apiFetch('/clients', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+        setClients((prev) => [entry, ...prev])
+        addLog('client_create', `Client créé: ${payload.nom}`)
+        setSelectedClientId(entry.id)
+      } catch (err) {
+        pushToast('error', `Client non enregistré: ${err.message}`)
+        addLog('client_error', `Client création échouée: ${err.message}`, 'error')
+        return
+      }
     }
     await loadClients()
   }
@@ -561,25 +1110,38 @@ function App() {
     if (!selectedClientId) return alert('Sélectionne un client.')
     const ok = await confirmDialog('Supprimer client', 'Êtes-vous sûr de supprimer ce client ?')
     if (!ok) return
-    const data = readStore(dbKeys.clients, [])
-    const next = data.filter((c) => c.id !== selectedClientId)
-    writeStore(dbKeys.clients, next)
-    addLog('client_delete', `Client supprimé: ${selectedClientId}`)
+    try {
+      await apiFetch(`/clients/${selectedClientId}`, { method: 'DELETE' })
+      setClients((prev) => prev.filter((c) => c.id !== selectedClientId))
+      addLog('client_delete', `Client supprimé: ${selectedClientId}`)
+    } catch (err) {
+      pushToast('error', `Client non supprimé: ${err.message}`)
+      addLog('client_error', `Client suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedClientId(null)
     setClientForm(emptyClient)
     await loadClients()
   }
 
   async function loadArticles(q) {
-    const data = readStore(dbKeys.articles, [])
-    const term = q?.toLowerCase().trim()
-    const filtered = term
-      ? data.filter(
-          (a) =>
-            a.ref?.toLowerCase().includes(term) || a.nom?.toLowerCase().includes(term)
-        )
-      : data
-    setArticles(filtered)
+    try {
+      const data = await apiFetch('/articles')
+      setAllArticles(data)
+      const term = q?.toLowerCase().trim()
+      const filtered = term
+        ? data.filter(
+            (a) =>
+              a.ref?.toLowerCase().includes(term) || a.nom?.toLowerCase().includes(term)
+          )
+        : data
+      setArticles(filtered)
+      updateNotifications(data, settings)
+    } catch (err) {
+      pushToast('error', `Articles DB: ${err.message}`)
+      setArticles([])
+      setAllArticles([])
+    }
   }
 
   function selectArticle(a) {
@@ -601,9 +1163,7 @@ function App() {
       setArticleForm((prev) => ({ ...prev, nom: name }))
       return
     }
-    const match = readStore(dbKeys.articles, []).find(
-      (a) => a.nom?.trim().toLowerCase() === term
-    )
+    const match = allArticles.find((a) => a.nom?.trim().toLowerCase() === term)
     if (!match) {
       setArticleForm((prev) => ({ ...prev, nom: name }))
       return
@@ -632,20 +1192,44 @@ function App() {
     }
     if (isUpdate) {
       if (!selectedArticleId) return alert('Sélectionne un article.')
-      const data = readStore(dbKeys.articles, [])
-      const idx = data.findIndex((a) => a.id === selectedArticleId)
-      if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-      writeStore(dbKeys.articles, data)
-      addLog('article_update', `Article mis à jour: ${payload.ref || payload.nom}`)
+      try {
+        await apiFetch(`/articles/${selectedArticleId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setAllArticles((prev) => {
+          const nextAll = prev.map((a) =>
+            a.id === selectedArticleId ? { ...a, ...payload } : a
+          )
+          updateNotifications(nextAll, settings)
+          return nextAll
+        })
+        addLog('article_update', `Article mis à jour: ${payload.ref || payload.nom}`)
+      } catch (err) {
+        pushToast('error', `Article non enregistré: ${err.message}`)
+        addLog('article_error', `Article update échoué: ${err.message}`, 'error')
+        return
+      }
     } else {
-      const data = readStore(dbKeys.articles, [])
       const entry = { id: nextArticleId(), ...payload, created_at: nowIso() }
-      data.unshift(entry)
-      writeStore(dbKeys.articles, data)
-      addLog('article_create', `Article créé: ${payload.ref || payload.nom}`)
-      setSelectedArticleId(entry.id)
+      try {
+        await apiFetch('/articles', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+        setAllArticles((prev) => {
+          const nextAll = [entry, ...prev]
+          updateNotifications(nextAll, settings)
+          return nextAll
+        })
+        addLog('article_create', `Article créé: ${payload.ref || payload.nom}`)
+        setSelectedArticleId(entry.id)
+      } catch (err) {
+        pushToast('error', `Article non enregistré: ${err.message}`)
+        addLog('article_error', `Article création échouée: ${err.message}`, 'error')
+        return
+      }
     }
-    updateNotifications()
     await loadArticles(articleSearch)
   }
 
@@ -653,21 +1237,35 @@ function App() {
     if (!selectedArticleId) return alert('Sélectionne un article.')
     const ok = await confirmDialog('Supprimer article', 'Êtes-vous sûr de supprimer cet article ?')
     if (!ok) return
-    const data = readStore(dbKeys.articles, [])
-    const next = data.filter((a) => a.id !== selectedArticleId)
-    writeStore(dbKeys.articles, next)
-    addLog('article_delete', `Article supprimé: ${selectedArticleId}`)
+    try {
+      await apiFetch(`/articles/${selectedArticleId}`, { method: 'DELETE' })
+      setAllArticles((prev) => {
+        const nextAll = prev.filter((a) => a.id !== selectedArticleId)
+        updateNotifications(nextAll, settings)
+        return nextAll
+      })
+      addLog('article_delete', `Article supprimé: ${selectedArticleId}`)
+    } catch (err) {
+      pushToast('error', `Article non supprimé: ${err.message}`)
+      addLog('article_error', `Article suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedArticleId(null)
     setArticleForm(emptyArticle)
-    updateNotifications()
+    updateNotifications(allArticles, settings)
     await loadArticles(articleSearch)
   }
 
   async function loadWarehouses() {
-    const data = readStore(dbKeys.warehouses, [])
-    setWarehouses(data)
-    if (data.length && !invoice.warehouse) {
-      setInvoice((prev) => ({ ...prev, warehouse: data[0].nom }))
+    try {
+      const data = await apiFetch('/warehouses')
+      setWarehouses(data)
+      if (data.length && !invoice.warehouse) {
+        setInvoice((prev) => ({ ...prev, warehouse: data[0].nom }))
+      }
+    } catch (err) {
+      pushToast('error', `Entrepôts DB: ${err.message}`)
+      setWarehouses([])
     }
   }
 
@@ -682,21 +1280,31 @@ function App() {
       'Êtes-vous sûr de supprimer cet entrepôt ?'
     )
     if (!ok) return
-    const data = readStore(dbKeys.warehouses, [])
-    const next = data.filter((w) => w.id !== selectedWarehouseId)
-    writeStore(dbKeys.warehouses, next)
-    addLog('warehouse_delete', `Entrepôt supprimé: ${selectedWarehouseId}`)
+    try {
+      await apiFetch(`/warehouses/${selectedWarehouseId}`, { method: 'DELETE' })
+      setWarehouses((prev) => prev.filter((w) => w.id !== selectedWarehouseId))
+      addLog('warehouse_delete', `Entrepôt supprimé: ${selectedWarehouseId}`)
+    } catch (err) {
+      pushToast('error', `Entrepôt non supprimé: ${err.message}`)
+      addLog('warehouse_error', `Entrepôt suppression échouée: ${err.message}`, 'error')
+      return
+    }
     setSelectedWarehouseId(null)
     await loadWarehouses()
   }
   async function loadInfos() {
-    const data = readStore(dbKeys.infos, [])
-    setInfos(data)
+    try {
+      const data = await apiFetch('/infos')
+      setInfos(data)
+    } catch (err) {
+      pushToast('error', `Infos DB: ${err.message}`)
+      setInfos([])
+    }
   }
 
   async function selectInfo(id) {
     setSelectedInfoId(id)
-    const info = readStore(dbKeys.infos, []).find((i) => i.id === id) || {}
+    const info = infos.find((i) => i.id === id) || {}
     setInfoForm({
       nom: info.nom || '',
       adresse: info.adresse || '',
@@ -716,10 +1324,9 @@ function App() {
   function applyInfoLookup() {
     const term = infoLookup.trim()
     if (!term) return
-    const infosData = readStore(dbKeys.infos, [])
     const found =
-      infosData.find((i) => String(i.id) === term) ||
-      infosData.find((i) => i.nom?.toLowerCase().includes(term.toLowerCase()))
+      infos.find((i) => String(i.id) === term) ||
+      infos.find((i) => i.nom?.toLowerCase().includes(term.toLowerCase()))
     if (!found) {
       alert('Info introuvable')
       return
@@ -746,10 +1353,10 @@ function App() {
     if (!term) return
     const lower = term.toLowerCase()
     const match =
-      articles.find((a) => String(a.id) === term) ||
-      articles.find((a) => a.ref?.toLowerCase() === lower) ||
-      articles.find((a) => a.nom?.toLowerCase() === lower) ||
-      articles.find((a) => a.nom?.toLowerCase().includes(lower))
+      allArticles.find((a) => String(a.id) === term) ||
+      allArticles.find((a) => a.ref?.toLowerCase() === lower) ||
+      allArticles.find((a) => a.nom?.toLowerCase() === lower) ||
+      allArticles.find((a) => a.nom?.toLowerCase().includes(lower))
     if (!match) {
       alert('Article introuvable')
       return
@@ -780,27 +1387,44 @@ function App() {
       signature_path: sigPath || '',
       stamp_path: stampPath || '',
     }
-    const data = readStore(dbKeys.infos, [])
-    const idx = data.findIndex((i) => i.id === payload.id)
-    if (idx >= 0) data[idx] = { ...data[idx], ...payload }
-    else data.unshift({ ...payload, created_at: nowIso() })
-    writeStore(dbKeys.infos, data)
-    setSelectedInfoId(payload.id)
-    addLog('infos_save', `Infos enregistrées: ${payload.nom || payload.id}`)
-    await loadInfos()
+    try {
+      if (selectedInfoId) {
+        await apiFetch(`/infos/${selectedInfoId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+        setInfos((prev) => prev.map((i) => (i.id === payload.id ? { ...i, ...payload } : i)))
+      } else {
+        await apiFetch('/infos', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setInfos((prev) => [{ ...payload, created_at: nowIso() }, ...prev])
+      }
+      setSelectedInfoId(payload.id)
+      addLog('infos_save', `Infos enregistrées: ${payload.nom || payload.id}`)
+      await loadInfos()
+    } catch (err) {
+      pushToast('error', `Infos non enregistrées: ${err.message}`)
+      addLog('infos_error', `Infos save échoué: ${err.message}`, 'error')
+    }
   }
 
   async function deleteInfo() {
     if (!selectedInfoId) return alert('Sélectionne une info.')
     const ok = await confirmDialog('Supprimer info', 'Êtes-vous sûr de supprimer cette info ?')
     if (!ok) return
-    const data = readStore(dbKeys.infos, [])
-    const next = data.filter((i) => i.id !== selectedInfoId)
-    writeStore(dbKeys.infos, next)
-    addLog('infos_delete', `Infos supprimées: ${selectedInfoId}`)
-    setSelectedInfoId(null)
-    setInfoForm(emptyInfo)
-    await loadInfos()
+    try {
+      await apiFetch(`/infos/${selectedInfoId}`, { method: 'DELETE' })
+      setInfos((prev) => prev.filter((i) => i.id !== selectedInfoId))
+      addLog('infos_delete', `Infos supprimées: ${selectedInfoId}`)
+      setSelectedInfoId(null)
+      setInfoForm(emptyInfo)
+      await loadInfos()
+    } catch (err) {
+      pushToast('error', `Infos non supprimées: ${err.message}`)
+      addLog('infos_error', `Infos delete échoué: ${err.message}`, 'error')
+    }
   }
 
   async function uploadAsset(input) {
@@ -813,7 +1437,7 @@ function App() {
   }
 
   async function loadNotifications() {
-    updateNotifications()
+    updateNotifications(allArticles, settings)
     const data = readStore(dbKeys.notifications, [])
     setNotifications(data)
   }
@@ -862,7 +1486,7 @@ function App() {
     const current = readStore(dbKeys.settings, {})
     writeStore(dbKeys.settings, { ...current, ...payload })
     addLog('settings_save', 'Paramètres enregistrés')
-    updateNotifications()
+    updateNotifications(allArticles, payload)
   }
 
   async function uploadLogo() {
@@ -917,22 +1541,37 @@ function App() {
       )
       if (!ok) return
 
-      const data = readStore(dbKeys.articles, [])
-      const updated = data.map((a) => {
+      const updated = allArticles.map((a) => {
         const line = invoiceEntry.items.find((it) => it.ref && it.ref === a.ref)
         if (!line) return a
         const nextStock =
           parseFloat(a.stock || '0') - parseFloat(line.stock || line.qty || '0')
         return { ...a, stock: String(nextStock < 0 ? 0 : nextStock) }
       })
-      writeStore(dbKeys.articles, updated)
+      setAllArticles(updated)
+      await Promise.all(
+        updated.map((a) =>
+          apiFetch(`/articles/${a.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              ref: a.ref,
+              nom: a.nom,
+              prix: a.prix,
+              prix_achat: a.prix_achat,
+              tva: a.tva,
+              stock: a.stock,
+              warehouse: a.warehouse,
+            }),
+          })
+        )
+      )
     }
 
     addLog(
       'invoice_export',
       `Facture exportée ${invoiceEntry.numero} (${client?.nom || ''})`
     )
-    updateNotifications()
+    updateNotifications(allArticles, settings)
 
     const html = buildPreviewHtml({
       invoice,
@@ -978,8 +1617,7 @@ function App() {
         if (it.id !== id) return it
         let next = { ...it, ...patch }
         if (patch.ref) {
-          const all = readStore(dbKeys.articles, [])
-          const found = all.find((a) => a.ref === patch.ref)
+          const found = allArticles.find((a) => a.ref === patch.ref)
           if (found) {
             next = {
               ...next,
@@ -1019,26 +1657,43 @@ function App() {
     const lines = text.split(/\r?\n/).filter(Boolean)
     if (!lines.length) return
     const rows = lines.map((l) => l.split(',').map((v) => v.trim()))
-    const data = readStore(dbKeys.articles, [])
-    rows.forEach((cols) => {
-      const [ref, nom, prix = '0', prix_achat = '0', tva = '0', stock = '0', warehouse = ''] =
-        cols
-      if (!ref && !nom) return
-      data.unshift({
-        id: createId(),
-        ref,
-        nom,
-        prix,
-        prix_achat,
-        tva,
-        stock,
-        warehouse,
-        created_at: nowIso(),
-      })
-    })
-    writeStore(dbKeys.articles, data)
-    addLog('article_import', 'Import CSV articles')
-    await loadArticles(articleSearch)
+    try {
+      const entries = rows
+        .map((cols) => {
+          const [
+            ref,
+            nom,
+            prix = '0',
+            prix_achat = '0',
+            tva = '0',
+            stock = '0',
+            warehouse = '',
+          ] = cols
+          if (!ref && !nom) return null
+          return {
+            id: createId(),
+            ref,
+            nom,
+            prix,
+            prix_achat,
+            tva,
+            stock,
+            warehouse,
+            created_at: nowIso(),
+          }
+        })
+        .filter(Boolean)
+      await Promise.all(
+        entries.map((entry) =>
+          apiFetch('/articles', { method: 'POST', body: JSON.stringify(entry) })
+        )
+      )
+      addLog('article_import', 'Import CSV articles')
+      await loadArticles(articleSearch)
+    } catch (err) {
+      pushToast('error', `Import CSV échoué: ${err.message}`)
+      addLog('article_error', `Import CSV échoué: ${err.message}`, 'error')
+    }
   }
 
   function confirmDialog(title, message) {
@@ -1065,9 +1720,8 @@ function App() {
   }
 
   function exportArticlesCsv() {
-    const data = readStore(dbKeys.articles, [])
     const header = 'ref,nom,prix,prix_achat,tva,stock,warehouse'
-    const rows = data.map(
+    const rows = allArticles.map(
       (a) =>
         `${a.ref || ''},${a.nom || ''},${a.prix || ''},${a.prix_achat || ''},${a.tva || ''},${a.stock || ''},${a.warehouse || ''}`
     )
@@ -1094,6 +1748,390 @@ function App() {
     downloadFile('logs.csv', [header, ...rows].join('\n'), 'text/csv')
   }
 
+  function openAdminTab() {
+    if (!authedUser) {
+      pushToast('error', 'Connecte-toi pour acceder a l admin.')
+      return
+    }
+    if (!canAccessAdmin) {
+      pushToast('error', 'Acces admin refuse.')
+      return
+    }
+    const saved = getAdminPassword()
+    if (!saved) {
+      setAdminModal({ open: true, value: '', mode: 'set' })
+      return
+    }
+    if (!adminUnlocked) {
+      setAdminModal({ open: true, value: '', mode: 'login' })
+      return
+    }
+    setAdminSection('overview')
+    setPage('admin')
+  }
+
+  function openPanel() {
+    if (!authedUser) {
+      setAuthModal((prev) => ({ ...prev, open: true, mode: 'login' }))
+      return
+    }
+    if (!canAccess('invoice_access')) {
+      pushToast('error', "Ce compte n'a pas accès à la facturation.")
+      return
+    }
+    setPage('facture')
+  }
+
+  async function logout() {
+    if (!supabase) return
+    await supabase.auth.signOut()
+    setAuthedUser(null)
+    setSettingsMenuOpen(false)
+    setNotifPreviewOpen(false)
+    setPage('home')
+  }
+
+  async function acceptAuthModal() {
+    if (!supabase) {
+      pushToast('error', 'Supabase non configurée.')
+      return
+    }
+    const email = authModal.email.trim()
+    const password = authModal.password.trim()
+    if (!email || !password) return
+
+    if (authModal.mode === 'signup') {
+      const signupName = authModal.name.trim() || email.split('@')[0]
+      if (DEV_DISABLE_EMAIL_CONFIRMATION) {
+        try {
+          await apiFetch('/auth/dev-signup', {
+            method: 'POST',
+            body: JSON.stringify({ email, password, name: signupName }),
+          })
+        } catch (err) {
+          pushToast('error', err.message)
+          return
+        }
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { name: signupName } },
+        })
+        if (error) {
+          pushToast('error', error.message)
+          return
+        }
+        setAuthSession(data?.session || null)
+        setAuthedUser(data?.session?.user || data?.user || null)
+        if (data?.session?.user) await syncProfile(data.session.user, data.session.access_token)
+        pushToast('success', 'Compte créé.')
+        setAuthModal({ open: false, mode: 'login', email: '', password: '', name: '' })
+        if (data?.session?.user) setPage('facture')
+        return
+      }
+
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (signInError) {
+        pushToast('error', signInError.message)
+        return
+      }
+      setAuthSession(signInData.session)
+      setAuthedUser(signInData.session.user)
+      await syncProfile(signInData.session.user, signInData.session.access_token)
+      pushToast('success', 'Compte créé.')
+      setAuthModal({ open: false, mode: 'login', email: '', password: '', name: '' })
+      setPage('facture')
+      return
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      pushToast('error', error.message)
+      return
+    }
+    setAuthSession(data.session)
+    setAuthedUser(data.session.user)
+    await syncProfile(data.session.user, data.session.access_token)
+    setAuthModal({ open: false, mode: 'login', email: '', password: '', name: '' })
+    setPage('facture')
+  }
+
+  async function syncProfile(user, accessToken = '') {
+    if (!supabase || !user) {
+      setUserRole('user')
+      setUserPermissions(permissionsForRole('user'))
+      return
+    }
+    const isSuperadmin =
+      SUPERADMIN_EMAIL && user.email?.toLowerCase() === SUPERADMIN_EMAIL.toLowerCase()
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, role')
+      .eq('id', user.id)
+      .maybeSingle()
+    if (error) {
+      pushToast('error', error.message)
+      return
+    }
+    if (!data) {
+      const role = isSuperadmin ? 'root' : 'user'
+      const { error: insErr } = await supabase.from('profiles').insert({
+        id: user.id,
+        email: user.email,
+        name: user.user_metadata?.name || user.email?.split('@')[0] || '',
+        role,
+      })
+      if (insErr) {
+        pushToast('error', insErr.message)
+        return
+      }
+      setUserRole(role)
+      setUserPermissions(permissionsForRole(role))
+    } else if (isSuperadmin && data.role !== 'root') {
+      const { error: updErr } = await supabase
+        .from('profiles')
+        .update({ role: 'root' })
+        .eq('id', user.id)
+      if (updErr) {
+        pushToast('error', updErr.message)
+        return
+      }
+      setUserRole('root')
+      setUserPermissions(permissionsForRole('root'))
+    } else {
+      const role = data.role || 'user'
+      setUserRole(role)
+      setUserPermissions(permissionsForRole(role))
+    }
+    const sessionData = accessToken ? null : await supabase.auth.getSession()
+    const token = accessToken || sessionData?.data?.session?.access_token || ''
+    if (token) {
+      try {
+        const access = await apiFetchAuth('/me/access', token)
+        if (access?.role) setUserRole(access.role)
+        if (access?.permissions) setUserPermissions(normalizePermissions(access.permissions))
+      } catch {
+        // keep fallback role permissions
+      }
+    }
+  }
+
+  async function loadAdminUsers() {
+    if (!supabase) return
+    setAdminUsersLoading(true)
+    setAdminUsersError('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token || authSession?.access_token || ''
+      if (!token) {
+        throw new Error('Session manquante. Reconnecte-toi.')
+      }
+      const data = await apiFetchAuth('/admin/users', token)
+      setAdminUsers(Array.isArray(data) ? data : [])
+      setAdminUsersLoaded(true)
+    } catch (err) {
+      setAdminUsers([])
+      setAdminUsersLoaded(true)
+      setAdminUsersError(err.message)
+      pushToast('error', `Utilisateurs: ${err.message}`)
+    } finally {
+      setAdminUsersLoading(false)
+    }
+  }
+
+  async function loadAdminRoles() {
+    if (!supabase) return
+    setAdminRolesLoading(true)
+    setAdminRolesError('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token || authSession?.access_token || ''
+      if (!token) throw new Error('Session manquante. Reconnecte-toi.')
+      const data = await apiFetchAuth('/admin/roles', token)
+      const nextRoles = Array.isArray(data) ? data.map(normalizeRole) : []
+      const merged = [...DEFAULT_ROLE_LIST]
+      for (const role of nextRoles) {
+        const index = merged.findIndex((r) => r.slug === role.slug)
+        if (index >= 0) merged[index] = role
+        else merged.push(role)
+      }
+      setAdminRoles(merged)
+      setAdminRolesLoaded(true)
+      if (editingRoleSlug) {
+        const current = merged.find((r) => r.slug === editingRoleSlug)
+        if (current) {
+          setRoleForm({ slug: current.slug, label: current.label, permissions: current.permissions })
+        }
+      } else if (!roleForm.slug) {
+        setRoleForm({ slug: 'visitor', label: 'Visiteur', permissions: permissionsForRole('visitor') })
+      }
+    } catch (err) {
+      setAdminRoles(DEFAULT_ROLE_LIST)
+      setAdminRolesLoaded(true)
+      setAdminRolesError(err.message)
+      pushToast('error', `Rôles: ${err.message}`)
+    } finally {
+      setAdminRolesLoading(false)
+    }
+  }
+
+  async function createAdminUser() {
+    if (!supabase) return
+    const payload = {
+      email: adminUserForm.email.trim(),
+      password: adminUserForm.password.trim(),
+      name: adminUserForm.name.trim(),
+      role: adminUserForm.role || 'user',
+    }
+    if (!payload.email || !payload.password) {
+      pushToast('error', 'Email et mot de passe requis.')
+      return
+    }
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData?.session?.access_token || authSession?.access_token || ''
+    if (!token) {
+      pushToast('error', 'Session manquante. Reconnecte-toi.')
+      return
+    }
+    try {
+      await apiFetchAuth('/admin/users', token, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setAdminUserForm({ email: '', password: '', name: '', role: 'user' })
+      await loadAdminUsers()
+      pushToast('success', 'Utilisateur créé.')
+    } catch (err) {
+      pushToast('error', `Utilisateur: ${err.message}`)
+    }
+  }
+
+  async function updateUserRole(id, role) {
+    if (!supabase) return
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData?.session?.access_token || authSession?.access_token || ''
+    if (!token) {
+      pushToast('error', 'Session manquante. Reconnecte-toi.')
+      return
+    }
+    try {
+      await apiFetchAuth(`/admin/users/${id}`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      })
+      await loadAdminUsers()
+      pushToast('success', 'Rôle utilisateur mis à jour.')
+    } catch (err) {
+      pushToast('error', `Utilisateur: ${err.message}`)
+    }
+  }
+
+  const startEditRole = (role) => {
+    if (!role) return
+    setEditingRoleSlug(role.slug)
+    setRoleForm({
+      slug: role.slug,
+      label: role.label || role.slug,
+      permissions: normalizePermissions(role.permissions || {}),
+    })
+  }
+
+  const resetRoleForm = () => {
+    setEditingRoleSlug('')
+    setRoleForm({
+      slug: '',
+      label: '',
+      permissions: permissionsForRole('visitor'),
+    })
+  }
+
+  async function saveRoleDefinition() {
+    if (!supabase) return
+    const slug = roleForm.slug.trim().toLowerCase()
+    const label = roleForm.label.trim()
+    if (!slug || !label) {
+      pushToast('error', 'Slug et label requis.')
+      return
+    }
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData?.session?.access_token || authSession?.access_token || ''
+    if (!token) {
+      pushToast('error', 'Session manquante. Reconnecte-toi.')
+      return
+    }
+    try {
+      const method = editingRoleSlug ? 'PUT' : 'POST'
+      const endpoint = editingRoleSlug ? `/admin/roles/${editingRoleSlug}` : '/admin/roles'
+      await apiFetchAuth(endpoint, token, {
+        method,
+        body: JSON.stringify({
+          slug,
+          label,
+          permissions: roleForm.permissions,
+        }),
+      })
+      setEditingRoleSlug('')
+      setRoleForm({
+        slug: '',
+        label: '',
+        permissions: permissionsForRole('visitor'),
+      })
+      await loadAdminRoles()
+      await loadAdminUsers()
+      pushToast('success', 'Rôle enregistré.')
+    } catch (err) {
+      pushToast('error', `Rôle: ${err.message}`)
+    }
+  }
+
+  async function deleteRoleDefinition(slug) {
+    if (!supabase) return
+    const currentSlug = String(slug || '').toLowerCase()
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData?.session?.access_token || authSession?.access_token || ''
+    if (!token) {
+      pushToast('error', 'Session manquante. Reconnecte-toi.')
+      return
+    }
+    const ok = await confirmDialog('Supprimer rôle', `Supprimer le rôle ${currentSlug} ?`)
+    if (!ok) return
+    try {
+      await apiFetchAuth(`/admin/roles/${currentSlug}`, token, { method: 'DELETE' })
+      if (editingRoleSlug === currentSlug) resetRoleForm()
+      await loadAdminRoles()
+      await loadAdminUsers()
+      pushToast('success', 'Rôle supprimé.')
+    } catch (err) {
+      pushToast('error', `Rôle: ${err.message}`)
+    }
+  }
+
+  function acceptAdminModal() {
+    const value = adminModal.value.trim()
+    if (!value) return
+    const current = readStore(dbKeys.settings, {})
+    if (adminModal.mode === 'set') {
+      writeStore(dbKeys.settings, { ...current, admin_password: value })
+      setAdminUnlocked(true)
+      setAdminModal({ open: false, value: '', mode: 'login' })
+      setPage('admin')
+      pushToast('success', 'Mot de passe admin défini.')
+      return
+    }
+    const saved = current.admin_password || ''
+    if (value !== saved) {
+      pushToast('error', 'Mot de passe admin incorrect.')
+      return
+    }
+    setAdminUnlocked(true)
+    setAdminModal({ open: false, value: '', mode: 'login' })
+    setPage('admin')
+  }
+
   const [clientHistory, setClientHistory] = useState([])
   useEffect(() => {
     if (!selectedClientId) {
@@ -1103,6 +2141,30 @@ function App() {
     loadClientHistory(selectedClientId).then(setClientHistory)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClientId])
+
+  useEffect(() => {
+    if (page !== 'admin' || !adminUnlocked) return
+    refreshDbHealth()
+    loadAdminEnv()
+    if (canAccess('role_manage')) loadAdminRoles()
+    if (canAccess('user_manage')) loadAdminUsers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, adminUnlocked, userPermissions, canAccess])
+
+  useEffect(() => {
+    if (page !== 'admin') return
+    if (!adminTabs.some((tab) => tab.key === adminSection)) {
+      setAdminSection('overview')
+    }
+  }, [page, adminSection, adminTabs])
+
+  useEffect(() => {
+    if (page === 'home') return
+    const required = PAGE_PERMISSION_MAP[page] || 'invoice_access'
+    if (!canAccess(required)) {
+      setPage(canAccess('invoice_access') ? 'facture' : 'home')
+    }
+  }, [page, userPermissions, canAccess])
 
   return (
     <div>
@@ -1158,12 +2220,19 @@ function App() {
                 onClick={async () => {
                   const nom = warehouseModal.value.trim()
                   if (!nom) return
-                  const data = readStore(dbKeys.warehouses, [])
-                  data.push({ id: createId(), nom })
-                  writeStore(dbKeys.warehouses, data)
-                  addLog('warehouse_create', `Entrepôt créé: ${nom}`)
-                  setWarehouseModal({ open: false, value: '' })
-                  await loadWarehouses()
+                  const entry = { id: createId(), nom }
+                  try {
+                    await apiFetch('/warehouses', {
+                      method: 'POST',
+                      body: JSON.stringify(entry),
+                    })
+                    addLog('warehouse_create', `Entrepôt créé: ${nom}`)
+                    setWarehouseModal({ open: false, value: '' })
+                    await loadWarehouses()
+                  } catch (err) {
+                    pushToast('error', `Entrepôt non enregistré: ${err.message}`)
+                    addLog('warehouse_error', `Entrepôt création échouée: ${err.message}`, 'error')
+                  }
                 }}
               >
                 Accepter
@@ -1172,35 +2241,559 @@ function App() {
           </div>
         </div>
       )}
-      <header className="topbar">
-        <div className="brand">Gestion de Factures</div>
-        <nav className="tabs">
-          {['facture', 'clients', 'articles', 'infos', 'logs'].map((p) => (
-            <button
-              key={p}
-              className={`tab ${page === p ? 'active' : ''}`}
-              onClick={() => setPage(p)}
-            >
-              {p === 'facture'
-                ? 'Factures'
-                : p === 'clients'
-                ? 'Clients'
-                : p === 'articles'
-                ? 'Articles'
-                : p === 'infos'
-                ? 'Infos'
-                : 'Notifications'}
-              {p === 'logs' && notifications.filter((n) => !n.read).length > 0 && (
-                <span className="tab-badge">
-                  {notifications.filter((n) => !n.read).length}
-                </span>
+      {adminModal.open && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-title">
+              {adminModal.mode === 'set' ? 'Définir mot de passe admin' : 'Accès admin'}
+            </div>
+            <div className="modal-body">
+              <label>Mot de passe</label>
+              <input
+                type="password"
+                value={adminModal.value}
+                onChange={(e) =>
+                  setAdminModal((prev) => ({ ...prev, value: e.target.value }))
+                }
+                placeholder="Mot de passe"
+              />
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setAdminModal({ open: false, value: '', mode: 'login' })}>
+                Annuler
+              </button>
+              <button className="primary" onClick={acceptAdminModal}>
+                Accepter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {authModal.open && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-title">
+              {authModal.mode === 'signup' ? 'Créer un compte' : 'Connexion'}
+            </div>
+            <div className="modal-body">
+              {authModal.mode === 'signup' && (
+                <>
+                  <label>Nom</label>
+                  <input
+                    value={authModal.name}
+                    onChange={(e) =>
+                      setAuthModal((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                    placeholder="Nom"
+                  />
+                </>
               )}
+              <label>Email</label>
+              <input
+                type="email"
+                value={authModal.email}
+                onChange={(e) =>
+                  setAuthModal((prev) => ({ ...prev, email: e.target.value }))
+                }
+                placeholder="email@domaine.com"
+              />
+              <label>Mot de passe</label>
+              <input
+                type="password"
+                value={authModal.password}
+                onChange={(e) =>
+                  setAuthModal((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder="Mot de passe"
+              />
+            </div>
+            <div className="modal-actions">
+              <button
+                onClick={() =>
+                  setAuthModal({ open: false, mode: 'login', email: '', password: '', name: '' })
+                }
+              >
+                Annuler
+              </button>
+              <button className="primary" onClick={acceptAuthModal}>
+                {authModal.mode === 'signup' ? 'Créer' : 'Se connecter'}
+              </button>
+            </div>
+            <div className="modal-footer">
+              {authModal.mode === 'signup' ? (
+                <button
+                  className="link"
+                  onClick={() =>
+                    setAuthModal((prev) => ({ ...prev, mode: 'login' }))
+                  }
+                >
+                  Déjà un compte ? Se connecter
+                </button>
+              ) : (
+                <button
+                  className="link"
+                  onClick={() =>
+                    setAuthModal((prev) => ({ ...prev, mode: 'signup' }))
+                  }
+                >
+                  Pas de compte ? Créer un compte
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      <div
+        className="toast-stack"
+        style={{
+          top: uiPrefs.toastAnchor.startsWith('top') ? `${uiPrefs.toastOffsetY}px` : 'auto',
+          bottom: uiPrefs.toastAnchor.startsWith('bottom') ? `${uiPrefs.toastOffsetY}px` : 'auto',
+          left: uiPrefs.toastAnchor.endsWith('left') ? `${uiPrefs.toastOffsetX}px` : 'auto',
+          right: uiPrefs.toastAnchor.endsWith('right') ? `${uiPrefs.toastOffsetX}px` : 'auto',
+        }}
+      >
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.type || 'info'}`}>
+            <div className="toast-message">{t.message}</div>
+            <button className="toast-close" onClick={() => removeToast(t.id)}>
+              ×
             </button>
-          ))}
-        </nav>
+          </div>
+        ))}
+      </div>
+      {notifPreviewOpen && (
+        <div className="notif-preview-layer" onClick={() => setNotifPreviewOpen(false)}>
+          <div className="notif-preview-window" onClick={(e) => e.stopPropagation()}>
+            <div className="notif-preview-head">
+              <strong>{t('settings_preview')}</strong>
+              <button className="ghost" onClick={() => setNotifPreviewOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div
+              className="toast-stack toast-preview-stack"
+              style={{
+                top: uiPrefs.toastAnchor.startsWith('top') ? `${uiPrefs.toastOffsetY}px` : 'auto',
+                bottom: uiPrefs.toastAnchor.startsWith('bottom') ? `${uiPrefs.toastOffsetY}px` : 'auto',
+                left: uiPrefs.toastAnchor.endsWith('left') ? `${uiPrefs.toastOffsetX}px` : 'auto',
+                right: uiPrefs.toastAnchor.endsWith('right') ? `${uiPrefs.toastOffsetX}px` : 'auto',
+              }}
+            >
+              <div className="toast success">
+                <div className="toast-message">
+                  {uiPrefs.language === 'fr'
+                    ? 'Aperçu des notifications'
+                    : uiPrefs.language === 'en'
+                    ? 'Notification preview'
+                    : uiPrefs.language === 'es'
+                    ? 'Vista previa de notificaciones'
+                    : 'Anteprima notifiche'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <header className="topbar">
+        <div
+          className="brand"
+          role="button"
+          tabIndex={0}
+          onClick={() => setPage('home')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setPage('home')
+          }}
+        >
+          {t('brand')}
+        </div>
+        {page === 'home' ? (
+          <nav className="home-tabs">
+            <a href="#features">Fonctionnalités</a>
+            <a href="#pricing">Prix</a>
+            <a href="#security">Sécurité</a>
+            <a href="#faq">FAQ</a>
+          </nav>
+        ) : (
+          <nav className="tabs">
+            {[
+              canAccess('invoice_access') && 'facture',
+              canAccess('client_access') && 'clients',
+              canAccess('article_access') && 'articles',
+              canAccess('info_access') && 'infos',
+              canAccess('logs_access') && 'logs',
+              canAccessAdmin && 'admin',
+            ]
+              .filter(Boolean)
+              .map((p) => (
+              <button
+                key={p}
+                className={`tab ${page === p ? 'active' : ''}`}
+                onClick={() => (p === 'admin' ? openAdminTab() : setPage(p))}
+              >
+                {p === 'facture'
+                  ? t('nav_invoice')
+                  : p === 'clients'
+                  ? t('nav_clients')
+                  : p === 'articles'
+                  ? t('nav_articles')
+                  : p === 'infos'
+                  ? t('nav_infos')
+                  : p === 'logs'
+                  ? t('nav_logs')
+                  : t('nav_admin')}
+                {p === 'logs' && notifications.filter((n) => !n.read).length > 0 && (
+                  <span className="tab-badge">
+                    {notifications.filter((n) => !n.read).length}
+                  </span>
+                )}
+              </button>
+              ))}
+          </nav>
+        )}
+        <div className="topbar-actions">
+          {page === 'home' && (
+            <>
+              <button className="ghost" onClick={() => setAuthModal((prev) => ({ ...prev, open: true, mode: 'login' }))}>
+                {t('login')}
+              </button>
+              <button className="primary" onClick={() => setAuthModal((prev) => ({ ...prev, open: true, mode: 'signup' }))}>
+                {t('signup')}
+              </button>
+            </>
+          )}
+          {page !== 'home' && authedUser && (
+            <>
+              <button className="ghost" onClick={logout}>
+                {t('logout')}
+              </button>
+              <div className="topbar-settings" ref={settingsMenuRef}>
+                <button
+                  className="ghost settings-trigger"
+                  onClick={() => setSettingsMenuOpen((prev) => !prev)}
+                  aria-haspopup="menu"
+                  aria-expanded={settingsMenuOpen}
+                  title={t('settings')}
+                >
+                  ⚙
+                </button>
+                {settingsMenuOpen && (
+                  <div className="settings-popover">
+                    <div className="settings-popover-head">
+                      <strong>{t('settings_title')}</strong>
+                      <button className="ghost" onClick={() => setSettingsMenuOpen(false)}>
+                        ×
+                      </button>
+                    </div>
+                    <label>{t('settings_language')}</label>
+                    <CustomSelect
+                      value={uiPrefs.language}
+                      onChange={(value) => setUiPrefs((prev) => ({ ...prev, language: value }))}
+                      options={UI_LANGUAGE_OPTIONS}
+                    />
+                    <label>{t('settings_theme')}</label>
+                    <CustomSelect
+                      value={uiPrefs.theme}
+                      onChange={(value) => setUiPrefs((prev) => ({ ...prev, theme: value }))}
+                      options={UI_THEME_OPTIONS}
+                    />
+                    <label className="check-line">
+                      <input
+                        type="checkbox"
+                        checked={uiPrefs.keepSessionOnReload}
+                        onChange={(e) =>
+                          setUiPrefs((prev) => ({
+                            ...prev,
+                            keepSessionOnReload: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span>{t('settings_session')}</span>
+                    </label>
+                    <div className="settings-divider"></div>
+                    <label>{t('settings_notifications')}</label>
+                    <div className="settings-grid-2">
+                      <div className="field compact">
+                        <label>{t('settings_anchor')}</label>
+                        <CustomSelect
+                          value={uiPrefs.toastAnchor}
+                          onChange={(value) =>
+                            setUiPrefs((prev) => ({ ...prev, toastAnchor: value }))
+                          }
+                          options={[
+                            { value: 'top-right', label: 'Top right' },
+                            { value: 'top-left', label: 'Top left' },
+                            { value: 'bottom-right', label: 'Bottom right' },
+                            { value: 'bottom-left', label: 'Bottom left' },
+                          ]}
+                        />
+                      </div>
+                      <div className="field compact">
+                        <label>{t('settings_offset_x')}</label>
+                        <input
+                          type="number"
+                          value={uiPrefs.toastOffsetX}
+                          onChange={(e) =>
+                            setUiPrefs((prev) => ({ ...prev, toastOffsetX: e.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="field compact">
+                        <label>{t('settings_offset_y')}</label>
+                        <input
+                          type="number"
+                          value={uiPrefs.toastOffsetY}
+                          onChange={(e) =>
+                            setUiPrefs((prev) => ({ ...prev, toastOffsetY: e.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="btn-row">
+                      <button className="ghost" onClick={() => setNotifPreviewOpen((prev) => !prev)}>
+                        {t('settings_preview')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
-      <main className="content">
+      <main className={`content ${page === 'home' ? 'home-page' : ''}`}>
+        {page === 'home' && (
+          <section className="page active">
+            <div className="hero">
+              <div className="hero-left">
+                <div className="hero-eyebrow">{t('home_eyebrow')}</div>
+                <h1 className="hero-title">{t('home_title')}</h1>
+                <p className="hero-subtitle">
+                  {t('home_subtitle')}
+                </p>
+                <div className="hero-cta">
+                  <button className="primary" onClick={openPanel}>
+                    {t('home_open_panel')}
+                  </button>
+                  <button
+                    className="ghost"
+                    onClick={() =>
+                      setAuthModal((prev) => ({ ...prev, open: true, mode: 'signup' }))
+                    }
+                  >
+                    {t('home_create_account')}
+                  </button>
+                </div>
+                <div className="hero-highlights">
+                  <div className="highlight">
+                    <div className="highlight-value">{t('home_highlight_1_value')}</div>
+                    <div className="highlight-label">{t('home_highlight_1_label')}</div>
+                  </div>
+                  <div className="highlight">
+                    <div className="highlight-value">{t('home_highlight_2_value')}</div>
+                    <div className="highlight-label">{t('home_highlight_2_label')}</div>
+                  </div>
+                  <div className="highlight">
+                    <div className="highlight-value">{t('home_highlight_3_value')}</div>
+                    <div className="highlight-label">{t('home_highlight_3_label')}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="hero-right">
+                <div className="hero-surface">
+                  <div className="hero-surface-header">
+                    <div className="surface-dot"></div>
+                    <div className="surface-dot"></div>
+                    <div className="surface-dot"></div>
+                  </div>
+                  <div className="hero-surface-body">
+                    <div className="surface-metric">
+                      <div className="surface-label">Factures ce mois</div>
+                      <div className="surface-value">128</div>
+                    </div>
+                    <div className="surface-metric">
+                      <div className="surface-label">Encaissements</div>
+                      <div className="surface-value">48 240 €</div>
+                    </div>
+                    <div className="surface-metric">
+                      <div className="surface-label">Stocks critiques</div>
+                      <div className="surface-value warn">7</div>
+                    </div>
+                    <div className="surface-timeline">
+                      <div className="surface-event">
+                        <span className="dot ok"></span>
+                        Facture FACT-20260321-003 exportée
+                      </div>
+                      <div className="surface-event">
+                        <span className="dot warn"></span>
+                        Alerte stock: REF-8801
+                      </div>
+                      <div className="surface-event">
+                        <span className="dot"></span>
+                        Nouveau client: SARL Horizon
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="hero-badge">
+                  <div className="badge-title">Accès rapide</div>
+                  <div className="badge-text">Panel prêt en moins de 2 minutes.</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="features" className="home-section">
+              <div className="home-section-title">Conçu pour le quotidien</div>
+              <div className="home-grid">
+                <div className="home-card">
+                  <div className="home-card-title">Factures propres</div>
+                  <div className="home-card-text">
+                    Modèles clairs, numérotation automatique, export PDF/DOC.
+                  </div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Stocks en direct</div>
+                  <div className="home-card-text">
+                    Seuils d'alerte, historiques et déstockage intégré.
+                  </div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Clients suivis</div>
+                  <div className="home-card-text">
+                    Historique, factures liées et accès rapide aux contacts.
+                  </div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Multi-entrepôts</div>
+                  <div className="home-card-text">
+                    Répartition des stocks par site et filtre rapide.
+                  </div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Exports & CSV</div>
+                  <div className="home-card-text">
+                    Import/export rapide pour articles et journaux.
+                  </div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Logs & audit</div>
+                  <div className="home-card-text">
+                    Traçabilité pour chaque action importante.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="home-split">
+              <div className="home-split-card">
+                <div className="home-section-title">Process simple</div>
+                <div className="steps">
+                  <div className="step">
+                    <div className="step-index">01</div>
+                    <div>
+                      <div className="step-title">Créez votre compte</div>
+                      <div className="step-text">Accès sécurisé en quelques secondes.</div>
+                    </div>
+                  </div>
+                  <div className="step">
+                    <div className="step-index">02</div>
+                    <div>
+                      <div className="step-title">Renseignez vos articles</div>
+                      <div className="step-text">Import CSV ou création manuelle.</div>
+                    </div>
+                  </div>
+                  <div className="step">
+                    <div className="step-index">03</div>
+                    <div>
+                      <div className="step-title">Facturez en 2 minutes</div>
+                      <div className="step-text">Export PDF, suivi, archives.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="home-split-card">
+                <div className="home-section-title">Pourquoi ça marche</div>
+                <div className="quote">
+                  «On a enfin un outil lisible, sans menus inutiles. L’équipe va plus vite
+                  et on suit mieux les stocks.»
+                </div>
+                <div className="quote-author">— Lina, gérante boutique</div>
+              </div>
+            </div>
+
+            <div id="pricing" className="home-section">
+              <div className="home-section-title">Prix</div>
+              <div className="home-grid pricing-grid">
+                <div className="home-card">
+                  <div className="home-card-title">Starter</div>
+                  <div className="home-card-price">0€/mois</div>
+                  <div className="home-card-text">Factures illimitées, 1 utilisateur.</div>
+                  <button className="ghost">Démarrer</button>
+                </div>
+                <div className="home-card home-card-highlight">
+                  <div className="home-card-title">Pro</div>
+                  <div className="home-card-price">19€/mois</div>
+                  <div className="home-card-text">Multi-entrepôts, exports avancés, support.</div>
+                  <button className="primary">Choisir Pro</button>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Entreprise</div>
+                  <div className="home-card-price">Sur devis</div>
+                  <div className="home-card-text">Déploiement sur mesure et SLA.</div>
+                  <button className="ghost">Nous contacter</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="security" className="home-section">
+              <div className="home-section-title">Sécurité & fiabilité</div>
+              <div className="home-grid">
+                <div className="home-card">
+                  <div className="home-card-title">Chiffrement</div>
+                  <div className="home-card-text">Données protégées en transit et au repos.</div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Accès contrôlé</div>
+                  <div className="home-card-text">Accès par compte et contrôles d’usage.</div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Sauvegardes</div>
+                  <div className="home-card-text">Backups automatiques et restauration rapide.</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="faq" className="home-section">
+              <div className="home-section-title">FAQ</div>
+              <div className="home-grid">
+                <div className="home-card">
+                  <div className="home-card-title">Puis-je exporter mes factures ?</div>
+                  <div className="home-card-text">Oui, en PDF ou DOC selon vos besoins.</div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Mes données sont-elles privées ?</div>
+                  <div className="home-card-text">Oui, tout est isolé par compte et sécurisé.</div>
+                </div>
+                <div className="home-card">
+                  <div className="home-card-title">Le support est-il inclus ?</div>
+                  <div className="home-card-text">Support standard inclus, premium en Pro.</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="home-cta">
+              <div>
+                <div className="home-cta-title">Prêt à simplifier votre gestion ?</div>
+                <div className="home-cta-text">
+                  Accédez au panel et commencez ? facturer en quelques minutes.
+                </div>
+              </div>
+              <button className="primary" onClick={openPanel}>
+                Accéder au panel
+              </button>
+            </div>
+          </section>
+        )}
         {page === 'facture' && (
           <section className="page active">
             <div className="grid-2">
@@ -1260,7 +2853,7 @@ function App() {
                 </div>
                 <div className="row-2">
                   <div className="field">
-                    <label>Date échéance</label>
+                    <label>Date Échéance</label>
                     <input
                       type="date"
                       value={invoice.date_echeance}
@@ -1825,12 +3418,407 @@ function App() {
             </div>
           </section>
         )}
+
+        {page === 'admin' && adminUnlocked && (
+          <section className="page active admin-page">
+            <div className="admin-hero card">
+              <div>
+                <div className="admin-kicker">Console admin</div>
+                <h2>Administration</h2>
+                <div className="hint">
+                  Chaque bloc admin a sa page interne. Plus simple, plus propre, plus lisible.
+                </div>
+              </div>
+              <div className="admin-stats">
+                <div className="admin-stat">
+                  <span>Utilisateurs</span>
+                  <strong>{adminUsers.length}</strong>
+                </div>
+                <div className="admin-stat">
+                  <span>Base</span>
+                  <strong className={dbHealth.db ? 'ok-text' : 'bad-text'}>
+                    {dbHealth.db ? 'Connectée' : 'Non connectée'}
+                  </strong>
+                </div>
+                <div className="admin-stat">
+                  <span>Mode dev</span>
+                  <strong>{DEV_DISABLE_EMAIL_CONFIRMATION ? 'Sans email' : 'Normal'}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-subnav card">
+              {adminTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  className={adminSection === tab.key ? 'active' : ''}
+                  onClick={() => setAdminSection(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {adminSection === 'overview' && (
+              <div className="admin-overview-grid">
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Vue d’ensemble</h3>
+                      <div className="hint">
+                        Choisis une section pour gérer les réglages, les rôles ou les utilisateurs.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="admin-overview-grid-inner">
+                    <div className="overview-tile">
+                      <span>Réglages</span>
+                      <strong>Connexion, env, mot de passe admin</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Rôles</span>
+                      <strong>Création et permissions enregistrées en base</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Utilisateurs</span>
+                      <strong>Création, lecture et changement de rôle</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Raccourcis</h3>
+                      <div className="hint">Accès direct aux pages internes de l’admin.</div>
+                    </div>
+                  </div>
+                  <div className="admin-quick-actions">
+                    {canAccess('admin_access') && (
+                      <button className="ghost" onClick={() => setAdminSection('settings')}>
+                        Ouvrir les réglages
+                      </button>
+                    )}
+                    {canAccess('role_manage') && (
+                      <button className="ghost" onClick={() => setAdminSection('roles')}>
+                        Gérer les rôles
+                      </button>
+                    )}
+                    {canAccess('user_manage') && (
+                      <button className="ghost" onClick={() => setAdminSection('users')}>
+                        Gérer les utilisateurs
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminSection === 'settings' && canAccess('admin_access') && (
+              <div className="admin-section-grid">
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>État base de données</h3>
+                      <div className="hint">Vérifie la connexion Supabase et la santé globale.</div>
+                    </div>
+                    <button className="ghost" onClick={refreshDbHealth}>
+                      Tester connexion
+                    </button>
+                  </div>
+                  <div className={`status ${dbHealth.db ? 'ok' : 'bad'}`}>
+                    {dbHealth.db ? 'Connectée' : 'Non connectée'}
+                  </div>
+                  {dbHealth.error && <div className="hint">{dbHealth.error}</div>}
+                </div>
+
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Configuration .env</h3>
+                      <div className="hint">Les changements demandent un redémarrage du serveur.</div>
+                    </div>
+                  </div>
+                  <label>SUPABASE_URL</label>
+                  <input
+                    value={adminEnv.SUPABASE_URL}
+                    onChange={(e) => setAdminEnv({ ...adminEnv, SUPABASE_URL: e.target.value })}
+                  />
+                  <label>SUPABASE_SERVICE_ROLE_KEY</label>
+                  <input
+                    type="password"
+                    value={adminEnv.SUPABASE_SERVICE_ROLE_KEY}
+                    onChange={(e) =>
+                      setAdminEnv({
+                        ...adminEnv,
+                        SUPABASE_SERVICE_ROLE_KEY: e.target.value,
+                      })
+                    }
+                  />
+                  <div className="btn-row">
+                    <button className="primary" onClick={saveAdminEnv}>
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Mot de passe admin</h3>
+                      <div className="hint">Stocké dans les données locales du site.</div>
+                    </div>
+                  </div>
+                  <label>Nouveau mot de passe</label>
+                  <input
+                    type="password"
+                    value={adminPassInput}
+                    onChange={(e) => setAdminPassInput(e.target.value)}
+                  />
+                  <div className="btn-row">
+                    <button
+                      className="primary"
+                      onClick={() => {
+                        const next = adminPassInput.trim()
+                        if (!next) return
+                        const current = readStore(dbKeys.settings, {})
+                        writeStore(dbKeys.settings, { ...current, admin_password: next })
+                        setAdminPassInput('')
+                        pushToast('success', 'Mot de passe admin mis à jour.')
+                      }}
+                    >
+                      Mettre à jour
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminSection === 'roles' && canAccess('role_manage') && (
+              <div className="admin-section-grid">
+                <div className="card admin-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Rôles & permissions</h3>
+                      <div className="hint">
+                        Les rôles sont stockés dans la base avec leurs permissions.
+                      </div>
+                    </div>
+                    <button className="ghost" onClick={loadAdminRoles}>
+                      Rafraîchir
+                    </button>
+                  </div>
+
+                  <div className="admin-role-editor">
+                    <div className="row-2">
+                      <div className="field">
+                        <label>Slug</label>
+                        <input
+                          value={roleForm.slug}
+                          onChange={(e) =>
+                            setRoleForm((prev) => ({ ...prev, slug: e.target.value }))
+                          }
+                          placeholder="visitor"
+                          disabled={!!editingRoleSlug}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Label</label>
+                        <input
+                          value={roleForm.label}
+                          onChange={(e) =>
+                            setRoleForm((prev) => ({ ...prev, label: e.target.value }))
+                          }
+                          placeholder="Visiteur"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="perm-grid">
+                      {ROLE_PERMISSION_DEFS.map((perm) => (
+                        <label className="perm-item" key={perm.key}>
+                          <input
+                            type="checkbox"
+                            checked={!!roleForm.permissions?.[perm.key]}
+                            onChange={(e) =>
+                              setRoleForm((prev) => ({
+                                ...prev,
+                                permissions: {
+                                  ...prev.permissions,
+                                  [perm.key]: e.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          <span className="perm-box" aria-hidden="true"></span>
+                          <span className="perm-copy">
+                            <span className="perm-title">{perm.label}</span>
+                            <span className="perm-hint">{perm.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="btn-row">
+                      <button className="primary" onClick={saveRoleDefinition}>
+                        {editingRoleSlug ? 'Mettre à jour le rôle' : 'Créer le rôle'}
+                      </button>
+                      <button className="ghost" onClick={resetRoleForm}>
+                        Réinitialiser
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="user-list-meta">
+                    <span>
+                      {adminRolesLoaded ? `${adminRoles.length} rôle(s)` : 'Liste non chargée'}
+                    </span>
+                    {adminRolesLoading && <span>Chargement...</span>}
+                  </div>
+                  {adminRolesError && <div className="error-box">{adminRolesError}</div>}
+
+                  <div className="roles-list">
+                    {adminRoles.map((role) => (
+                      <div
+                        className={`role-card ${editingRoleSlug === role.slug ? 'active' : ''}`}
+                        key={role.slug}
+                      >
+                        <div className="role-head">
+                          <div>
+                            <div className="role-label">{role.label}</div>
+                            <div className="role-slug">{role.slug}</div>
+                          </div>
+                          <div className="role-actions">
+                            <button className="ghost" onClick={() => startEditRole(role)}>
+                              Modifier
+                            </button>
+                            {!['visitor', 'user', 'admin', 'root'].includes(role.slug) && (
+                              <button className="danger" onClick={() => deleteRoleDefinition(role.slug)}>
+                                Supprimer
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="role-perms">
+                          {ROLE_PERMISSION_DEFS.filter((perm) => role.permissions?.[perm.key]).map(
+                            (perm) => (
+                              <span key={perm.key} className="role-chip">
+                                {perm.label}
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminSection === 'users' && canAccess('user_manage') && (
+              <div className="admin-section-grid">
+                <div className="card admin-card admin-users-card">
+                  <div className="section-head">
+                    <div>
+                      <h3>Utilisateurs</h3>
+                      <div className="hint">
+                        Lecture depuis la base de données (`profiles`) avec fallback sur Auth.
+                      </div>
+                    </div>
+                    <button className="ghost" onClick={loadAdminUsers}>
+                      Rafraîchir
+                    </button>
+                  </div>
+
+                  <div className="row-2">
+                    <div className="field">
+                      <label>Email</label>
+                      <input
+                        value={adminUserForm.email}
+                        onChange={(e) =>
+                          setAdminUserForm({ ...adminUserForm, email: e.target.value })
+                        }
+                        placeholder="email@domaine.com"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Mot de passe</label>
+                      <input
+                        type="password"
+                        value={adminUserForm.password}
+                        onChange={(e) =>
+                          setAdminUserForm({ ...adminUserForm, password: e.target.value })
+                        }
+                        placeholder="Mot de passe"
+                      />
+                    </div>
+                  </div>
+                  <div className="row-2">
+                    <div className="field">
+                      <label>Nom</label>
+                      <input
+                        value={adminUserForm.name}
+                        onChange={(e) =>
+                          setAdminUserForm({ ...adminUserForm, name: e.target.value })
+                        }
+                        placeholder="Nom"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Rôle</label>
+                      <CustomSelect
+                        value={adminUserForm.role}
+                        onChange={(value) => setAdminUserForm({ ...adminUserForm, role: value })}
+                        options={adminRoles.map((role) => ({ value: role.slug, label: role.label }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="btn-row">
+                    <button className="primary" onClick={createAdminUser}>
+                      Créer utilisateur
+                    </button>
+                  </div>
+
+                  <div className="user-list-meta">
+                    <span>
+                      {adminUsersLoaded ? `${adminUsers.length} résultat(s)` : 'Liste non chargée'}
+                    </span>
+                    {adminUsersLoading && <span>Chargement...</span>}
+                  </div>
+                  {adminUsersError && <div className="error-box">{adminUsersError}</div>}
+
+                  <div className="list user-list">
+                    {!adminUsersLoading && adminUsersLoaded && adminUsers.length === 0 && (
+                      <div className="item">Aucun utilisateur trouvé dans la base.</div>
+                    )}
+                    {adminUsers.map((u) => (
+                      <div className="user-row" key={u.id}>
+                        <div className="user-main">
+                          <div className="user-email">{u.email}</div>
+                          <div className="user-name">{u.name || '-'}</div>
+                          <div className="user-meta">ID: {u.id}</div>
+                        </div>
+                        <div className="user-role">
+                          <CustomSelect
+                            value={u.role}
+                            onChange={(value) => updateUserRole(u.id, value)}
+                            options={adminRoles.map((role) => ({
+                              value: role.slug,
+                              label: role.label,
+                            }))}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
       </main>
     </div>
   )
 }
 
 export default App
-
-
-

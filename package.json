@@ -3,14 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
+    "electron:dev": "electron .",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
     "html2pdf.js": "^0.14.0",
+    "process": "^0.11.10",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
@@ -19,6 +26,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
+    "electron": "^37.0.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
